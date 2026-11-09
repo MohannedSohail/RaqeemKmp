@@ -60,3 +60,4 @@ The core thesis of Raqeem is simple: **Tracking daily expenses should not feel l
 - **Emerald Green (`#00C48C`)**: Represents growth, financial balance, and positive cash flow.
 - **Cairo Font Family**: Geometric, clear Arabic letterforms with balanced x-height, eliminating awkward vertical clipping of Arabic diacritics.
 - **RTL Fluid Motion**: Micro-interactions originate from the right, respecting natural Arabic reading flow.
+

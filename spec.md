@@ -271,3 +271,4 @@ Feature: Onboarding Lifecycle
     Then the app must launch directly to the Dashboard
     And the onboarding screen must never be rendered again
 ```
+

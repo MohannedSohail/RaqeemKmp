@@ -134,3 +134,4 @@ invoke_subagent(
 )
 ```
 Each agent executes its designated phase, generates verified artifacts, updates the SDLC checklist, and passes control to the next agent in the Spec-Kit pipeline.
+
