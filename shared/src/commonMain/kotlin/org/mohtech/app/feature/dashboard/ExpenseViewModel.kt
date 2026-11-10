@@ -1,0 +1,202 @@
+package org.mohtech.app.feature.dashboard
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlin.time.Clock
+import org.mohtech.app.ai.nlp.LocalDialectExpenseParser
+import org.mohtech.app.data.model.ExpenseBatch
+import org.mohtech.app.data.model.ExpenseCategory
+import org.mohtech.app.data.model.ExpenseItem
+import org.mohtech.app.data.model.ProofType
+import org.mohtech.app.data.repository.ExpenseRepository
+import org.mohtech.app.data.storage.AppPreferences
+
+class ExpenseViewModel(
+    private val repository: ExpenseRepository,
+    private val preferences: AppPreferences,
+    private val parser: LocalDialectExpenseParser = LocalDialectExpenseParser()
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(
+        ExpenseUiState(
+            activeCurrency = preferences.getPreferredCurrency(),
+            isOnboardingDone = preferences.isOnboardingCompleted()
+        )
+    )
+    val uiState: StateFlow<ExpenseUiState> = _uiState.asStateFlow()
+
+    private val _effects = MutableSharedFlow<ExpenseEffect>()
+    val effects: SharedFlow<ExpenseEffect> = _effects.asSharedFlow()
+
+    init {
+        handleIntent(ExpenseIntent.LoadInitialData)
+    }
+
+    fun handleIntent(intent: ExpenseIntent) {
+        when (intent) {
+            is ExpenseIntent.LoadInitialData -> loadInitialData()
+            is ExpenseIntent.CheckPermissionsAndStartRecord -> startRecording()
+            is ExpenseIntent.StopRecording -> stopRecording()
+            is ExpenseIntent.UpdateAmplitude -> updateAmplitude(intent.amplitude)
+            is ExpenseIntent.ParseManualSpeechText -> parseManualSpeechText(intent.rawText)
+            is ExpenseIntent.ParseBankSms -> parseBankSms(intent.smsBody)
+            is ExpenseIntent.ConfirmBatch -> confirmBatch(intent.batch)
+            is ExpenseIntent.DeleteExpense -> deleteExpense(intent.expenseId)
+            is ExpenseIntent.FilterByCategory -> filterByCategory(intent.category)
+            is ExpenseIntent.DismissReviewSheet -> dismissReviewSheet()
+            is ExpenseIntent.DismissFallbackSheet -> dismissFallbackSheet()
+            is ExpenseIntent.CompleteOnboarding -> completeOnboarding()
+        }
+    }
+
+    private fun loadInitialData() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            repository.initialize()
+
+            repository.expensesFlow.collect { expenses ->
+                val todayTotal = repository.getTodayTotal()
+                val weeklyTotal = repository.getWeeklyTotal()
+                val currentFilter = _uiState.value.selectedCategoryFilter
+
+                val filtered = if (currentFilter == null) {
+                    expenses
+                } else {
+                    expenses.filter { it.category == currentFilter }
+                }
+
+                _uiState.update { state ->
+                    state.copy(
+                        isLoading = false,
+                        recentExpenses = expenses,
+                        filteredExpenses = filtered,
+                        todayTotal = todayTotal,
+                        weeklyTotal = weeklyTotal,
+                        activeCurrency = preferences.getPreferredCurrency(),
+                        isOnboardingDone = preferences.isOnboardingCompleted()
+                    )
+                }
+            }
+        }
+    }
+
+    private fun startRecording() {
+        viewModelScope.launch {
+            _effects.emit(ExpenseEffect.TriggerHapticFeedback)
+
+            if (_uiState.value.isHardwareSpeechAvailable) {
+                _uiState.update { it.copy(isRecording = true, userErrorMessage = null) }
+            } else {
+                _uiState.update { it.copy(showFallbackManualSheet = true) }
+            }
+        }
+    }
+
+    private fun stopRecording() {
+        _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+    }
+
+    private fun updateAmplitude(amplitude: Float) {
+        _uiState.update { it.copy(recordingAmplitude = amplitude.coerceIn(0f, 1f)) }
+    }
+
+    private fun parseManualSpeechText(rawText: String) {
+        if (rawText.isBlank()) return
+        val now = Clock.System.now().toEpochMilliseconds()
+        val batch = parser.parseSpokenText(
+            spokenText = rawText,
+            defaultCurrency = _uiState.value.activeCurrency,
+            currentTimestamp = now
+        )
+
+        _uiState.update {
+            it.copy(
+                isRecording = false,
+                reviewSheetPendingBatch = batch,
+                showFallbackManualSheet = false
+            )
+        }
+    }
+
+    private fun parseBankSms(smsBody: String) {
+        if (smsBody.isBlank()) return
+        val now = Clock.System.now().toEpochMilliseconds()
+        val proof = parser.parseBankSms(smsBody, now)
+
+        if (proof != null) {
+            val item = ExpenseItem(
+                id = "exp_sms_$now",
+                title = proof.merchant,
+                amount = proof.extractedAmount,
+                currency = proof.currency,
+                category = ExpenseCategory.GROCERIES, // default fallback
+                timestamp = now,
+                proofType = ProofType.BANK_SMS,
+                proofDetails = proof,
+                rawSpokenText = smsBody
+            )
+            val batch = ExpenseBatch(
+                batchId = "batch_sms_$now",
+                items = listOf(item),
+                totalBatchAmount = item.amount,
+                createdAt = now
+            )
+            _uiState.update { it.copy(reviewSheetPendingBatch = batch) }
+        } else {
+            viewModelScope.launch {
+                _effects.emit(ExpenseEffect.ShowToast("لم نتمكن من قراءة الإشعار البنكي"))
+            }
+        }
+    }
+
+    private fun confirmBatch(batch: ExpenseBatch) {
+        viewModelScope.launch {
+            repository.saveBatch(batch)
+            _uiState.update { it.copy(reviewSheetPendingBatch = null) }
+            _effects.emit(ExpenseEffect.TriggerHapticFeedback)
+            _effects.emit(ExpenseEffect.ShowToast("تم تسجيل المصروف بنجاح"))
+        }
+    }
+
+    private fun deleteExpense(expenseId: String) {
+        viewModelScope.launch {
+            repository.deleteExpense(expenseId)
+            _effects.emit(ExpenseEffect.ShowToast("تم حذف المصروف"))
+        }
+    }
+
+    private fun filterByCategory(category: ExpenseCategory?) {
+        _uiState.update { state ->
+            val filtered = if (category == null) {
+                state.recentExpenses
+            } else {
+                state.recentExpenses.filter { it.category == category }
+            }
+            state.copy(
+                selectedCategoryFilter = category,
+                filteredExpenses = filtered
+            )
+        }
+    }
+
+    private fun dismissReviewSheet() {
+        _uiState.update { it.copy(reviewSheetPendingBatch = null) }
+    }
+
+    private fun dismissFallbackSheet() {
+        _uiState.update { it.copy(showFallbackManualSheet = false) }
+    }
+
+    private fun completeOnboarding() {
+        preferences.setOnboardingCompleted(true)
+        _uiState.update { it.copy(isOnboardingDone = true) }
+    }
+}
