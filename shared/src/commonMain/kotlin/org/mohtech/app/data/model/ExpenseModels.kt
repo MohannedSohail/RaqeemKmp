@@ -72,3 +72,4 @@ data class ExpenseBatch(
     val totalBatchAmount: Double,
     val createdAt: Long
 )
+

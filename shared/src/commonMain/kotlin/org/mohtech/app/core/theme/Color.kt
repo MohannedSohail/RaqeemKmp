@@ -32,3 +32,4 @@ object RaqeemColors {
     val CatHealth = Color(0xFFAB47BC)
     val CatGeneral = Color(0xFF94A3B8)
 }
+
