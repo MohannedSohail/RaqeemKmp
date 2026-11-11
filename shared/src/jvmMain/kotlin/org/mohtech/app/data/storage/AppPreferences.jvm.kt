@@ -41,3 +41,4 @@ class JvmAppPreferences : AppPreferences {
 }
 
 actual fun createAppPreferences(context: Any?): AppPreferences = JvmAppPreferences()
+

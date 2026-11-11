@@ -164,3 +164,4 @@ class ExpenseViewModelTest {
         assertTrue(preferences.isOnboardingCompleted())
     }
 }
+

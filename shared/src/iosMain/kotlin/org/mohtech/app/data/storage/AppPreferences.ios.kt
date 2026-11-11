@@ -24,3 +24,4 @@ class IosAppPreferences : AppPreferences {
 }
 
 actual fun createAppPreferences(context: Any?): AppPreferences = IosAppPreferences()
+

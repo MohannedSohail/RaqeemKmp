@@ -18,3 +18,4 @@ interface PlatformExpenseStorage {
  * Platform factory to instantiate the local offline storage engine.
  */
 expect fun createPlatformExpenseStorage(context: Any? = null): PlatformExpenseStorage
+

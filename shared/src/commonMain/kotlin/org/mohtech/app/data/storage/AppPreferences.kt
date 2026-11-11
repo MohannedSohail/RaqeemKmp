@@ -16,3 +16,4 @@ interface AppPreferences {
  * Platform factory to instantiate the platform-backed AppPreferences.
  */
 expect fun createAppPreferences(context: Any? = null): AppPreferences
+

@@ -77,3 +77,4 @@ actual fun createPlatformExpenseStorage(context: Any?): PlatformExpenseStorage {
         ?: throw IllegalStateException("Android Context must be provided to initialize PlatformExpenseStorage")
     return AndroidPlatformExpenseStorage(ctx.applicationContext)
 }
+

@@ -32,3 +32,4 @@ actual fun createAppPreferences(context: Any?): AppPreferences {
         ?: throw IllegalStateException("Android Context must be provided to initialize AppPreferences")
     return AndroidAppPreferences(ctx.applicationContext)
 }
+

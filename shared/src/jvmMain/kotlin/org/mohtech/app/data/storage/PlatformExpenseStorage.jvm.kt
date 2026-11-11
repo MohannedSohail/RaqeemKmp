@@ -76,3 +76,4 @@ class JvmPlatformExpenseStorage : PlatformExpenseStorage {
 }
 
 actual fun createPlatformExpenseStorage(context: Any?): PlatformExpenseStorage = JvmPlatformExpenseStorage()
+

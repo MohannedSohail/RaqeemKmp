@@ -82,3 +82,4 @@ class IosPlatformExpenseStorage : PlatformExpenseStorage {
 }
 
 actual fun createPlatformExpenseStorage(context: Any?): PlatformExpenseStorage = IosPlatformExpenseStorage()
+
