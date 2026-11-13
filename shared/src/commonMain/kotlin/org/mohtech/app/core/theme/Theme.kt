@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 
@@ -30,6 +31,8 @@ fun RaqeemTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = DarkColorScheme
+    val cairoFont = getCairoFontFamily()
+    val typography = remember(cairoFont) { createRaqeemTypography(cairoFont) }
 
     // Enforce Arabic RTL globally
     CompositionLocalProvider(
@@ -37,9 +40,8 @@ fun RaqeemTheme(
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = RaqeemTypography,
+            typography = typography,
             content = content
         )
     }
 }
-

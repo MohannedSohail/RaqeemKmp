@@ -3,6 +3,7 @@ package org.mohtech.app.feature.dashboard.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.mohtech.app.core.theme.RaqeemColors
+import org.mohtech.app.core.ui.RaqeemIcons
 import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
 
@@ -59,10 +62,10 @@ fun ExpenseReviewSheet(
             Box(
                 modifier = Modifier
                     .padding(vertical = 12.dp)
-                    .width(40.dp)
+                    .width(36.dp)
                     .height(4.dp)
                     .clip(CircleShape)
-                    .background(RaqeemColors.SurfaceBorder)
+                    .background(Color.White.copy(alpha = 0.12f))
             )
         }
     ) {
@@ -70,7 +73,7 @@ fun ExpenseReviewSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
-                .padding(bottom = 36.dp)
+                .padding(bottom = 32.dp)
         ) {
             // Header
             Row(
@@ -79,10 +82,10 @@ fun ExpenseReviewSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "مراجعة المصروف الصوتي",
+                    text = "مراجعة المصروف المستخرج",
                     color = RaqeemColors.TextPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
 
                 Box(
@@ -90,14 +93,19 @@ fun ExpenseReviewSheet(
                         .size(36.dp)
                         .clip(CircleShape)
                         .background(RaqeemColors.SurfaceElevated)
-                        .clickable(onClick = onDismiss),
+                        .border(1.dp, Color.White.copy(alpha = 0.06f), CircleShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(bounded = true, color = RaqeemColors.TextPrimary),
+                            onClick = onDismiss
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = "✕", color = RaqeemColors.TextSecondary, fontSize = 14.sp)
+                    RaqeemIcons.Close(size = 14.dp, tint = RaqeemColors.TextSecondary)
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Raw Spoken Quote
             if (firstItem.rawSpokenText.isNotBlank()) {
@@ -106,24 +114,26 @@ fun ExpenseReviewSheet(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(RaqeemColors.SurfaceElevated)
-                        .padding(12.dp)
+                        .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Text(
                         text = "« ${firstItem.rawSpokenText} »",
                         color = RaqeemColors.TextSecondary,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Normal
                     )
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Extracted Title & Amount Hero Card
+            // Extracted Details Hero Card
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
                     .background(RaqeemColors.SurfaceElevated)
-                    .border(1.dp, RaqeemColors.SurfaceBorder, RoundedCornerShape(16.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
                     .padding(18.dp)
             ) {
                 Row(
@@ -133,29 +143,31 @@ fun ExpenseReviewSheet(
                 ) {
                     Column {
                         Text(
-                            text = "المشتريات المكتشفة",
-                            color = RaqeemColors.TextSecondary,
-                            fontSize = 12.sp
+                            text = "المشتريات",
+                            color = RaqeemColors.TextTertiary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = firstItem.title,
                             color = RaqeemColors.TextPrimary,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
 
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             text = "المبلغ المحسوب",
-                            color = RaqeemColors.TextSecondary,
-                            fontSize = 12.sp
+                            color = RaqeemColors.TextTertiary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
-                                text = "${firstItem.amount}",
+                                text = if (firstItem.amount % 1.0 == 0.0) "${firstItem.amount.toInt()}" else "${firstItem.amount}",
                                 color = RaqeemColors.EmeraldGreen,
                                 fontSize = 24.sp,
                                 fontWeight = FontWeight.Bold
@@ -164,15 +176,15 @@ fun ExpenseReviewSheet(
                             Text(
                                 text = firstItem.currency,
                                 color = RaqeemColors.EmeraldGreen,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Payer & Split Info
             if (!firstItem.payer.isCurrentUser || firstItem.split != null) {
@@ -181,33 +193,35 @@ fun ExpenseReviewSheet(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(RaqeemColors.SurfaceElevated)
-                        .padding(12.dp),
+                        .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "الدافع: ${firstItem.payer.name}",
                         color = RaqeemColors.AmberWarning,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                     firstItem.split?.let { split ->
                         Text(
-                            text = "حصة كل شخص: ${split.amountPerPerson} ${firstItem.currency}",
+                            text = "حصة كل فرد: ${split.amountPerPerson} ${firstItem.currency}",
                             color = RaqeemColors.ElectricCyan,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Category Change Row
+            // Category Change
             Text(
-                text = "التصنيف المقترح (انقر لتعديله):",
+                text = "التصنيف",
                 color = RaqeemColors.TextSecondary,
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal
             )
             Spacer(modifier = Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -217,24 +231,37 @@ fun ExpenseReviewSheet(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) catColor.copy(alpha = 0.25f) else RaqeemColors.SurfaceElevated)
-                            .border(1.dp, if (isSelected) catColor else RaqeemColors.SurfaceBorder, RoundedCornerShape(10.dp))
+                            .background(if (isSelected) RaqeemColors.SurfaceElevated else RaqeemColors.SurfaceCard)
+                            .border(
+                                1.dp,
+                                if (isSelected) catColor.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.06f),
+                                RoundedCornerShape(10.dp)
+                            )
                             .clickable { selectedCategory = cat }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Text(
-                            text = cat.arabicTitle,
-                            color = if (isSelected) catColor else RaqeemColors.TextSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(catColor)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = cat.arabicTitle,
+                                color = if (isSelected) RaqeemColors.TextPrimary else RaqeemColors.TextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(26.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Confirm Button
+            // Confirm Button (Clean, authoritative, quiet)
             Button(
                 onClick = {
                     val updatedItems = batch.items.map { it.copy(category = selectedCategory) }
@@ -242,20 +269,29 @@ fun ExpenseReviewSheet(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp),
-                shape = RoundedCornerShape(16.dp),
+                    .height(52.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = RaqeemColors.EmeraldGreen,
                     contentColor = RaqeemColors.BackgroundSlate
                 )
             ) {
-                Text(
-                    text = "✓ تأكيد وحفظ المصروف",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    RaqeemIcons.Check(
+                        size = 18.dp,
+                        tint = RaqeemColors.BackgroundSlate
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "حفظ المصروف",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }
 }
-

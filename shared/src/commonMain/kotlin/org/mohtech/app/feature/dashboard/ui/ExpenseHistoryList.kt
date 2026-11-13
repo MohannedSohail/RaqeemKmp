@@ -3,6 +3,7 @@ package org.mohtech.app.feature.dashboard.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,13 +15,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.mohtech.app.core.theme.RaqeemColors
+import org.mohtech.app.core.ui.RaqeemIcons
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
 
@@ -42,7 +45,7 @@ fun ExpenseHistorySection(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
-        // Section Title
+        // Section Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -51,13 +54,14 @@ fun ExpenseHistorySection(
             Text(
                 text = "المصروفات الأخيرة",
                 color = RaqeemColors.TextPrimary,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "${expenses.size} معاملة",
-                color = RaqeemColors.TextSecondary,
-                fontSize = 12.sp
+                text = "${expenses.size} عملية",
+                color = RaqeemColors.TextTertiary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal
             )
         }
 
@@ -72,7 +76,7 @@ fun ExpenseHistorySection(
                 CategoryChip(
                     title = "الكل",
                     isSelected = selectedCategory == null,
-                    color = RaqeemColors.EmeraldGreen,
+                    categoryColor = RaqeemColors.EmeraldGreen,
                     onClick = { onSelectCategory(null) }
                 )
             }
@@ -80,7 +84,7 @@ fun ExpenseHistorySection(
                 CategoryChip(
                     title = category.arabicTitle,
                     isSelected = selectedCategory == category,
-                    color = Color(category.colorHex),
+                    categoryColor = Color(category.colorHex),
                     onClick = { onSelectCategory(category) }
                 )
             }
@@ -108,27 +112,40 @@ fun ExpenseHistorySection(
 private fun CategoryChip(
     title: String,
     isSelected: Boolean,
-    color: Color,
+    categoryColor: Color,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isSelected) color.copy(alpha = 0.2f) else RaqeemColors.SurfaceElevated)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isSelected) RaqeemColors.SurfaceElevated else RaqeemColors.SurfaceCard)
             .border(
                 1.dp,
-                if (isSelected) color else RaqeemColors.SurfaceBorder,
-                RoundedCornerShape(12.dp)
+                if (isSelected) categoryColor.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.06f),
+                RoundedCornerShape(10.dp)
             )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = true, color = categoryColor),
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp, vertical = 7.dp)
     ) {
-        Text(
-            text = title,
-            color = if (isSelected) color else RaqeemColors.TextSecondary,
-            fontSize = 13.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(categoryColor)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = title,
+                color = if (isSelected) RaqeemColors.TextPrimary else RaqeemColors.TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+            )
+        }
     }
 }
 
@@ -144,31 +161,31 @@ private fun ExpenseItemCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(RaqeemColors.SurfaceCard)
-            .border(1.dp, RaqeemColors.SurfaceBorder, RoundedCornerShape(16.dp))
-            .padding(14.dp)
+            .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Right: Icon + Details
+            // Right: Category indicator + Details
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                // Category Colored Circle Badge
+                // Category Visual Anchor (Geometric Badge)
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(categoryColor.copy(alpha = 0.15f))
-                        .border(1.dp, categoryColor.copy(alpha = 0.4f), CircleShape),
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(categoryColor.copy(alpha = 0.12f))
+                        .border(1.dp, categoryColor.copy(alpha = 0.25f), RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(14.dp)
+                            .size(10.dp)
                             .clip(CircleShape)
                             .background(categoryColor)
                     )
@@ -181,72 +198,76 @@ private fun ExpenseItemCard(
                         text = item.title,
                         color = RaqeemColors.TextPrimary,
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = item.category.arabicTitle,
-                            color = categoryColor,
+                            color = RaqeemColors.TextTertiary,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Normal
                         )
 
-                        // Payer or Split chip
+                        // Payer or Split status chip
                         if (!item.payer.isCurrentUser) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "• دفعها ${item.payer.name}",
                                 color = RaqeemColors.AmberWarning,
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         } else if (item.split != null) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "• قسمة (${item.split.amountPerPerson} ${item.currency})",
+                                text = "• حصتك ${item.split.amountPerPerson} ${item.currency}",
                                 color = RaqeemColors.ElectricCyan,
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
                 }
             }
 
-            // Left: Amount + Delete button
+            // Left: Amount + Quiet Delete button
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(horizontalAlignment = Alignment.End) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = if (item.amount % 1.0 == 0.0) "${item.amount.toInt()}" else "${item.amount}",
                             color = RaqeemColors.TextPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = item.currency,
                             color = RaqeemColors.EmeraldGreen,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
-                // Delete Button (Touch target >= 48dp)
+                // Delete Button (Clean Line Trash Icon, touch target >= 48dp)
                 Box(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .clickable(onClick = onDelete),
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(bounded = false, radius = 20.dp, color = RaqeemColors.CoralRose),
+                            onClick = onDelete
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "✕",
-                        color = RaqeemColors.CoralRose.copy(alpha = 0.8f),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                    RaqeemIcons.Trash(
+                        size = 16.dp,
+                        tint = RaqeemColors.TextTertiary
                     )
                 }
             }
@@ -261,30 +282,34 @@ private fun EmptyExpensesCard() {
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(RaqeemColors.SurfaceCard)
-            .border(1.dp, RaqeemColors.SurfaceBorder, RoundedCornerShape(16.dp))
-            .padding(32.dp),
+            .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 24.dp, vertical = 32.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(52.dp)
                     .clip(CircleShape)
-                    .background(RaqeemColors.EmeraldGreen.copy(alpha = 0.1f)),
+                    .background(RaqeemColors.SurfaceElevated)
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = "🎙️", fontSize = 26.sp)
+                RaqeemIcons.MicWave(
+                    size = 24.dp,
+                    tint = RaqeemColors.EmeraldGreen
+                )
             }
             Spacer(modifier = Modifier.height(14.dp))
             Text(
-                text = "لا توجد مصاريف مسجلة حتى الآن",
+                text = "لا توجد مصروفات مسجلة حتى الآن",
                 color = RaqeemColors.TextPrimary,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "اضغط على زر الميكروفون بالأسفل وتحدث بطبيعتك:\n\"بنزين بـ 50 شيكل\" أو \"قهوة بعشرة شيكل\"",
+                text = "اضغط على زر التسجيل وتحدث بطبيعتك:\n«بنزين بـ 50 شيكل» أو «قهوة بعشرة شيكل»",
                 color = RaqeemColors.TextSecondary,
                 fontSize = 12.sp,
                 textAlign = TextAlign.Center,
@@ -293,4 +318,3 @@ private fun EmptyExpensesCard() {
         }
     }
 }
-

@@ -3,6 +3,7 @@ package org.mohtech.app.feature.dashboard.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,10 +35,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.mohtech.app.core.theme.RaqeemColors
+import org.mohtech.app.core.ui.RaqeemIcons
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -49,12 +53,12 @@ fun PoliteFallbackSheet(
     var textInput by remember { mutableStateOf("") }
 
     val quickChips = listOf(
-        "☕ قهوة بعشرة $currency",
-        "⛽ بنزين ب 50 $currency",
-        "🛒 سوبرماركت 120 $currency",
-        "💊 دواء من الصيدلية 45 $currency",
-        "⚡ فاتورة كهرباء 200 $currency",
-        "🍽️ عشاء بستين $currency بيني وبين أحمد"
+        Pair("قهوة بعشرة $currency", RaqeemColors.CatDining),
+        Pair("بنزين بـ 50 $currency", RaqeemColors.CatTransport),
+        Pair("سوبرماركت 120 $currency", RaqeemColors.CatGroceries),
+        Pair("صيدلية 45 $currency", RaqeemColors.CatHealth),
+        Pair("فاتورة كهرباء 200 $currency", RaqeemColors.CatBills),
+        Pair("عشاء بستين $currency بيني وبين أحمد", RaqeemColors.ElectricCyan)
     )
 
     ModalBottomSheet(
@@ -65,10 +69,10 @@ fun PoliteFallbackSheet(
             Box(
                 modifier = Modifier
                     .padding(vertical = 12.dp)
-                    .width(40.dp)
+                    .width(36.dp)
                     .height(4.dp)
                     .clip(CircleShape)
-                    .background(RaqeemColors.SurfaceBorder)
+                    .background(Color.White.copy(alpha = 0.12f))
             )
         }
     ) {
@@ -76,7 +80,7 @@ fun PoliteFallbackSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
-                .padding(bottom = 36.dp)
+                .padding(bottom = 32.dp)
         ) {
             // Header
             Row(
@@ -86,14 +90,14 @@ fun PoliteFallbackSheet(
             ) {
                 Column {
                     Text(
-                        text = "التسجيل السريع بالكتابة أو الميكروفون",
+                        text = "التسجيل النصي السريع",
                         color = RaqeemColors.TextPrimary,
                         fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "يمكنك استخدام ميكروفون لوحة المفاتيح (Gboard) أو الكتابة",
+                        text = "يمكنك الكتابة أو استخدام ميكروفون لوحة المفاتيح",
                         color = RaqeemColors.TextSecondary,
                         fontSize = 12.sp
                     )
@@ -104,14 +108,19 @@ fun PoliteFallbackSheet(
                         .size(36.dp)
                         .clip(CircleShape)
                         .background(RaqeemColors.SurfaceElevated)
-                        .clickable(onClick = onDismiss),
+                        .border(1.dp, Color.White.copy(alpha = 0.06f), CircleShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(bounded = true, color = RaqeemColors.TextPrimary),
+                            onClick = onDismiss
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = "✕", color = RaqeemColors.TextSecondary, fontSize = 14.sp)
+                    RaqeemIcons.Close(size = 14.dp, tint = RaqeemColors.TextSecondary)
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Text Input Field
             OutlinedTextField(
@@ -120,7 +129,7 @@ fun PoliteFallbackSheet(
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = {
                     Text(
-                        text = "اكتب أو أملِ صوتياً: «بنزين بـ 50 $currency» أو «عشاء 80 $currency دفعها محمد»",
+                        text = "مثال: «بنزين بـ 50 $currency» أو «عشاء 80 $currency على حساب أحمد»",
                         color = RaqeemColors.TextTertiary,
                         fontSize = 13.sp
                     )
@@ -128,7 +137,7 @@ fun PoliteFallbackSheet(
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = RaqeemColors.EmeraldGreen,
-                    unfocusedBorderColor = RaqeemColors.SurfaceBorder,
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.08f),
                     focusedTextColor = RaqeemColors.TextPrimary,
                     unfocusedTextColor = RaqeemColors.TextPrimary,
                     focusedContainerColor = RaqeemColors.SurfaceElevated,
@@ -139,47 +148,59 @@ fun PoliteFallbackSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Quick Preset Expense Chips
+            // Quick Preset Expense Chips (Clean Dots, zero emojis)
             Text(
-                text = "أو اختر من المصاريف الجاهزة بنقرة واحدة:",
-                color = RaqeemColors.TextSecondary,
-                fontSize = 12.sp
+                text = "أو اختر صيغة جاهزة:",
+                color = RaqeemColors.TextTertiary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal
             )
             Spacer(modifier = Modifier.height(8.dp))
 
             FlowRow(
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                quickChips.forEach { chipText ->
+                quickChips.forEach { (phrase, dotColor) ->
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .background(RaqeemColors.SurfaceElevated)
-                            .border(1.dp, RaqeemColors.SurfaceBorder, RoundedCornerShape(10.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(10.dp))
                             .clickable {
-                                onParseText(chipText)
+                                onParseText(phrase)
+                                onDismiss()
                             }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .padding(horizontal = 12.dp, vertical = 7.dp)
                     ) {
-                        Text(
-                            text = chipText,
-                            color = RaqeemColors.TextPrimary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = phrase,
+                                color = RaqeemColors.TextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Submit Button
+            // Action Button
             Button(
                 onClick = {
                     if (textInput.isNotBlank()) {
                         onParseText(textInput)
+                        onDismiss()
                     }
                 },
                 enabled = textInput.isNotBlank(),
@@ -195,12 +216,11 @@ fun PoliteFallbackSheet(
                 )
             ) {
                 Text(
-                    text = "تحليل وحفظ المصروف",
+                    text = "تحليل وحفظ",
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
     }
 }
-

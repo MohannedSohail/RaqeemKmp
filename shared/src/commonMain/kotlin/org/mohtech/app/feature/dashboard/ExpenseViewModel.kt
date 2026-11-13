@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
+import org.mohtech.app.ai.audio.VoiceEngine
 import org.mohtech.app.ai.nlp.LocalDialectExpenseParser
 import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
@@ -22,13 +23,15 @@ import org.mohtech.app.data.storage.AppPreferences
 class ExpenseViewModel(
     private val repository: ExpenseRepository,
     private val preferences: AppPreferences,
-    private val parser: LocalDialectExpenseParser = LocalDialectExpenseParser()
+    private val parser: LocalDialectExpenseParser = LocalDialectExpenseParser(),
+    private val voiceEngine: VoiceEngine? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
         ExpenseUiState(
             activeCurrency = preferences.getPreferredCurrency(),
-            isOnboardingDone = preferences.isOnboardingCompleted()
+            isOnboardingDone = preferences.isOnboardingCompleted(),
+            isHardwareSpeechAvailable = voiceEngine?.isAvailable() ?: false
         )
     )
     val uiState: StateFlow<ExpenseUiState> = _uiState.asStateFlow()
@@ -51,6 +54,7 @@ class ExpenseViewModel(
             is ExpenseIntent.ConfirmBatch -> confirmBatch(intent.batch)
             is ExpenseIntent.DeleteExpense -> deleteExpense(intent.expenseId)
             is ExpenseIntent.FilterByCategory -> filterByCategory(intent.category)
+            is ExpenseIntent.OpenManualSheet -> openManualSheet()
             is ExpenseIntent.DismissReviewSheet -> dismissReviewSheet()
             is ExpenseIntent.DismissFallbackSheet -> dismissFallbackSheet()
             is ExpenseIntent.CompleteOnboarding -> completeOnboarding()
@@ -81,7 +85,8 @@ class ExpenseViewModel(
                         todayTotal = todayTotal,
                         weeklyTotal = weeklyTotal,
                         activeCurrency = preferences.getPreferredCurrency(),
-                        isOnboardingDone = preferences.isOnboardingCompleted()
+                        isOnboardingDone = preferences.isOnboardingCompleted(),
+                        isHardwareSpeechAvailable = voiceEngine?.isAvailable() ?: false
                     )
                 }
             }
@@ -90,18 +95,81 @@ class ExpenseViewModel(
 
     private fun startRecording() {
         viewModelScope.launch {
+            if (_uiState.value.isRecording) return@launch
             _effects.emit(ExpenseEffect.TriggerHapticFeedback)
 
-            if (_uiState.value.isHardwareSpeechAvailable) {
-                _uiState.update { it.copy(isRecording = true, userErrorMessage = null) }
-            } else {
-                _uiState.update { it.copy(showFallbackManualSheet = true) }
+            val engine = voiceEngine
+            if (engine == null || !engine.isAvailable()) {
+                _uiState.update {
+                    it.copy(
+                        isHardwareSpeechAvailable = false,
+                        showFallbackManualSheet = true
+                    )
+                }
+                return@launch
             }
+
+            _uiState.update {
+                it.copy(
+                    isRecording = true,
+                    recordingAmplitude = 0f,
+                    userErrorMessage = null
+                )
+            }
+
+            engine.startListening(
+                onResult = { text ->
+                    _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+                    if (text.isNotBlank()) {
+                        parseManualSpeechText(text)
+                    } else {
+                        viewModelScope.launch {
+                            _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
+                        }
+                    }
+                },
+                onAmplitudeChanged = { amp ->
+                    updateAmplitude(amp)
+                },
+                onError = { error ->
+                    _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+                    when (error) {
+                        "PERMISSION_DENIED" -> {
+                            viewModelScope.launch {
+                                _effects.emit(ExpenseEffect.RequestMicPermission)
+                                _effects.emit(ExpenseEffect.ShowToast("يرجى منح إذن استخدام الميكروفون"))
+                            }
+                            _uiState.update { it.copy(showFallbackManualSheet = true) }
+                        }
+                        "SPEECH_NOT_AVAILABLE" -> {
+                            _uiState.update {
+                                it.copy(
+                                    isHardwareSpeechAvailable = false,
+                                    showFallbackManualSheet = true
+                                )
+                            }
+                        }
+                        "NO_MATCH", "SPEECH_TIMEOUT" -> {
+                            viewModelScope.launch {
+                                _effects.emit(ExpenseEffect.ShowToast("لم نتمكن من سماع الصوت، يرجى المحاولة ثانية"))
+                            }
+                        }
+                        else -> {
+                            viewModelScope.launch {
+                                _effects.emit(ExpenseEffect.ShowToast("تعذر التعرف على الصوت، يمكنك استخدام الإدخال اليدوي"))
+                            }
+                            _uiState.update { it.copy(showFallbackManualSheet = true) }
+                        }
+                    }
+                }
+            )
         }
     }
 
     private fun stopRecording() {
+        if (!_uiState.value.isRecording) return
         _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+        voiceEngine?.stopListening()
     }
 
     private fun updateAmplitude(amplitude: Float) {
@@ -187,6 +255,10 @@ class ExpenseViewModel(
         }
     }
 
+    private fun openManualSheet() {
+        _uiState.update { it.copy(showFallbackManualSheet = true) }
+    }
+
     private fun dismissReviewSheet() {
         _uiState.update { it.copy(reviewSheetPendingBatch = null) }
     }
@@ -198,5 +270,10 @@ class ExpenseViewModel(
     private fun completeOnboarding() {
         preferences.setOnboardingCompleted(true)
         _uiState.update { it.copy(isOnboardingDone = true) }
+    }
+
+    public override fun onCleared() {
+        super.onCleared()
+        voiceEngine?.release()
     }
 }

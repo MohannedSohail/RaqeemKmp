@@ -24,11 +24,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.mohtech.app.core.theme.RaqeemColors
+import org.mohtech.app.core.ui.RaqeemIcons
 
 @Composable
 fun OnboardingScreen(
@@ -47,18 +49,19 @@ fun OnboardingScreen(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(modifier = Modifier.height(48.dp))
 
-            // Brand Logo
+            // Brand Seal
             Box(
                 modifier = Modifier
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(RaqeemColors.EmeraldGreen),
+                    .size(68.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(RaqeemColors.SurfaceElevated)
+                    .border(1.dp, RaqeemColors.EmeraldGreen.copy(alpha = 0.4f), RoundedCornerShape(18.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "ر",
-                    color = RaqeemColors.BackgroundSlate,
-                    fontSize = 42.sp,
+                    color = RaqeemColors.EmeraldGreen,
+                    fontSize = 38.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -66,9 +69,9 @@ fun OnboardingScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = "مرحباً بك في رقيم",
+                text = "رقيم: ذكاء المصاريف بالصوت",
                 color = RaqeemColors.TextPrimary,
-                fontSize = 26.sp,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
@@ -76,36 +79,36 @@ fun OnboardingScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "المساعد الذكي الأول لتتبع المصاريف اليومية بالصوت وباللهجات العربية، محلياً بنسبة 100%",
+                text = "سجل وفصل نفقاتك اليومية والمشتركة بالصوت وباللهجات العربية، محلياً بنسبة 100% وبدون سحابة",
                 color = RaqeemColors.TextSecondary,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 textAlign = TextAlign.Center,
-                lineHeight = 22.sp
+                lineHeight = 20.sp
             )
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 3 Feature Cards
+            // 3 Clean Feature Benefit Cards (Pure Vector Icons, Zero Emojis)
             FeatureBenefitCard(
-                icon = "🎙️",
-                title = "سجل مصروفك في 3 ثوانٍ",
-                description = "تحدث بطبيعتك: «بنزين بـ 50 شيكل» أو «قهوة بعشرة»، ورقيم يستخرج المبلغ والتصنيف فوراً."
+                icon = { RaqeemIcons.MicWave(size = 22.dp, tint = RaqeemColors.EmeraldGreen) },
+                title = "تسجيل صوتي فوري في 3 ثوانٍ",
+                description = "تحدث بطبيعتك: «بنزين بـ 50 شيكل» أو «قهوة بعشرة»، ورقيم يستخرج المبلغ والتصنيف بدقة."
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             FeatureBenefitCard(
-                icon = "👥",
-                title = "من دفع ولمن؟ تقسيم فوري",
-                description = "قل «عشاء بستين شيكل بيني وبين أحمد على حساب أحمد»، وسيتولى رقيم حساب وتوزيع الحصص."
+                icon = { RaqeemIcons.Users(size = 22.dp, tint = RaqeemColors.ElectricCyan) },
+                title = "تقسيم النفقات المشتركة",
+                description = "قل «عشاء بستين شيكل بيني وبين أحمد على حساب أحمد»، وسيتولى رقيم توزيع الحصص بدقة."
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             FeatureBenefitCard(
-                icon = "🛡️",
-                title = "100% بدون إنترنت وبخصوصية تامة",
-                description = "بياناتك المالية ومقاطع صوتك لا تغادر جهازك نهائياً؛ صفر سيرفرات وصفر مخاطر سحابية."
+                icon = { RaqeemIcons.Shield(size = 22.dp, tint = RaqeemColors.EmeraldGreen) },
+                title = "خصوصية مطلقة دون إنترنت",
+                description = "بياناتك المالية ومقاطع صوتك لا تغادر هاتفك نهائياً؛ صفر سيرفرات وسرية تامة."
             )
 
             Spacer(modifier = Modifier.height(28.dp))
@@ -121,17 +124,17 @@ fun OnboardingScreen(
                 onClick = onComplete,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
+                    .height(52.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = RaqeemColors.EmeraldGreen,
                     contentColor = RaqeemColors.BackgroundSlate
                 )
             ) {
                 Text(
-                    text = "ابدأ الآن ➔",
+                    text = "بدء الاستخدام",
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
@@ -140,7 +143,7 @@ fun OnboardingScreen(
 
 @Composable
 private fun FeatureBenefitCard(
-    icon: String,
+    icon: @Composable () -> Unit,
     title: String,
     description: String
 ) {
@@ -149,25 +152,31 @@ private fun FeatureBenefitCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(RaqeemColors.SurfaceCard)
-            .border(1.dp, RaqeemColors.SurfaceBorder, RoundedCornerShape(16.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
             .padding(16.dp)
     ) {
-        Row(verticalAlignment = Alignment.Top) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
-                    .background(RaqeemColors.SurfaceElevated),
+                    .background(RaqeemColors.SurfaceElevated)
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = icon, fontSize = 20.sp)
+                icon()
             }
+
             Spacer(modifier = Modifier.width(14.dp))
-            Column {
+
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     color = RaqeemColors.TextPrimary,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
@@ -181,4 +190,3 @@ private fun FeatureBenefitCard(
         }
     }
 }
-

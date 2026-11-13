@@ -1,5 +1,6 @@
 package org.mohtech.app.feature.dashboard.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -23,7 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -32,7 +33,11 @@ import org.mohtech.app.core.theme.RaqeemColors
 
 /**
  * BudgetRadarCard:
- * Displays today's spending radar and weekly totals with dynamic currency formatting.
+ * The signature focal element of the dashboard.
+ * Unslop Craft Principles:
+ * - Nested radius: outer 20dp, inner badge 8dp.
+ * - Hairline border: 1dp @ 8% opacity.
+ * - Calm, exact fintech metrics without decorative noise.
  */
 @Composable
 fun BudgetRadarCard(
@@ -42,14 +47,14 @@ fun BudgetRadarCard(
     modifier: Modifier = Modifier
 ) {
     val progressRatio = if (weeklyTotal > 0.0) {
-        (todayTotal / weeklyTotal).toFloat().coerceIn(0.05f, 1.0f)
+        (todayTotal / weeklyTotal).toFloat().coerceIn(0.04f, 1.0f)
     } else {
         0.0f
     }
 
     val animatedProgress by animateFloatAsState(
         targetValue = progressRatio,
-        animationSpec = tween(durationMillis = 800),
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
         label = "radarProgress"
     )
 
@@ -58,11 +63,11 @@ fun BudgetRadarCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(RaqeemColors.SurfaceCard)
-            .border(1.dp, RaqeemColors.SurfaceBorder, RoundedCornerShape(20.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
             .padding(20.dp)
     ) {
         Column {
-            // Header: Radar Title & Status Badge
+            // Header: Section Context & Quiet Status
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -71,13 +76,13 @@ fun BudgetRadarCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(10.dp)
+                            .size(8.dp)
                             .clip(CircleShape)
                             .background(RaqeemColors.EmeraldGreen)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "الرادار المالي لرقيم",
+                        text = "مؤشر الإنفاق",
                         color = RaqeemColors.TextSecondary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
@@ -86,15 +91,16 @@ fun BudgetRadarCard(
 
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .background(RaqeemColors.SurfaceElevated)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "100% محلي",
-                        color = RaqeemColors.EmeraldGreen,
+                        text = "محلي 100%",
+                        color = RaqeemColors.TextTertiary,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -110,9 +116,10 @@ fun BudgetRadarCard(
                 // Today's Total
                 Column {
                     Text(
-                        text = "مصروف اليوم",
+                        text = "اليوم",
                         color = RaqeemColors.TextSecondary,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
@@ -120,14 +127,14 @@ fun BudgetRadarCard(
                             text = if (todayTotal % 1.0 == 0.0) "${todayTotal.toInt()}" else "$todayTotal",
                             color = RaqeemColors.TextPrimary,
                             fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.SemiBold
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = currency,
                             color = RaqeemColors.EmeraldGreen,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(bottom = 4.dp)
                         )
                     }
@@ -136,23 +143,26 @@ fun BudgetRadarCard(
                 // Weekly Total
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "المجموع الأسبوعي",
+                        text = "الأسبوع",
                         color = RaqeemColors.TextSecondary,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = if (weeklyTotal % 1.0 == 0.0) "${weeklyTotal.toInt()}" else "$weeklyTotal",
-                            color = RaqeemColors.ElectricCyan,
+                            color = RaqeemColors.TextPrimary,
                             fontSize = 20.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = currency,
-                            color = RaqeemColors.TextSecondary,
-                            fontSize = 14.sp
+                            color = RaqeemColors.TextTertiary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Normal,
+                            modifier = Modifier.padding(bottom = 2.dp)
                         )
                     }
                 }
@@ -160,13 +170,13 @@ fun BudgetRadarCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Animated Visual Ratio Bar
+            // Calibrated Ratio Bar
             LinearProgressIndicator(
                 progress = { animatedProgress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
                 color = RaqeemColors.EmeraldGreen,
                 trackColor = RaqeemColors.SurfaceElevated,
                 strokeCap = StrokeCap.Round
@@ -174,4 +184,3 @@ fun BudgetRadarCard(
         }
     }
 }
-

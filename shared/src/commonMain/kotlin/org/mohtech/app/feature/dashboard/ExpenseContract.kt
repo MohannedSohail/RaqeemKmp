@@ -34,6 +34,7 @@ sealed interface ExpenseIntent {
     data class ConfirmBatch(val batch: ExpenseBatch) : ExpenseIntent
     data class DeleteExpense(val expenseId: String) : ExpenseIntent
     data class FilterByCategory(val category: ExpenseCategory?) : ExpenseIntent
+    data object OpenManualSheet : ExpenseIntent
     data object DismissReviewSheet : ExpenseIntent
     data object DismissFallbackSheet : ExpenseIntent
     data object CompleteOnboarding : ExpenseIntent
