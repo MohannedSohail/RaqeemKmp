@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
         AndroidContextHolder.context = applicationContext
 
         // Wire AndroidVoiceBridge delegates for Branch B fallback & permission requests
+        AndroidVoiceBridge.activityProvider = { this }
         AndroidVoiceBridge.speechIntentLauncher = { onResult, onError ->
             launchSpeechInput(onResult, onError)
         }
@@ -130,6 +131,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        AndroidVoiceBridge.activityProvider = null
         AndroidVoiceBridge.speechIntentLauncher = null
         AndroidVoiceBridge.micPermissionLauncher = null
         onPermissionGrantedCallback = null

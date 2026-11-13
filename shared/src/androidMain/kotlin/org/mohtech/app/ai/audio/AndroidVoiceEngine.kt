@@ -1,6 +1,7 @@
 package org.mohtech.app.ai.audio
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -16,10 +17,16 @@ import org.mohtech.app.data.storage.AndroidContextHolder
 
 /**
  * AndroidVoiceBridge:
- * Bridges platform Activity capabilities (system speech dialog intent and permission launchers)
- * with the cross-platform AndroidVoiceEngine without leaking activity contexts.
+ * Bridges platform Activity capabilities (foreground Activity context, system speech dialog intent,
+ * and permission launchers) with the cross-platform AndroidVoiceEngine without memory leaks.
  */
 object AndroidVoiceBridge {
+    /**
+     * Delegate to retrieve the current foreground Activity context.
+     * SpeechRecognizer requires an Activity context for proper AudioRecord attribution.
+     */
+    var activityProvider: (() -> Activity?)? = null
+
     /**
      * Delegate to launch system speech recognition dialog (Branch B fallback).
      * Invoked with (onResult: (String) -> Unit, onError: (String) -> Unit).
@@ -35,9 +42,8 @@ object AndroidVoiceBridge {
 
 /**
  * AndroidVoiceEngine:
- * Handles offline on-device Arabic speech recognition with safe mic hardware release
- * and package availability validation to avoid crashes on Xiaomi/HyperOS/Huawei devices.
- * Implements the cross-platform VoiceEngine interface with dual-branch fallback.
+ * Handles Arabic speech recognition with safe mic hardware release, Activity context attribution,
+ * and dual-branch fallback to eliminate the "insufficient permissions" error on Xiaomi HyperOS/MIUI devices.
  */
 class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
 
@@ -48,7 +54,6 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
      * Dual verification: verifies both in-process RecognitionService AND speech intent activity.
      * Uses flag 0 (instead of MATCH_DEFAULT_ONLY) so OEM speech recognition services
      * on Xiaomi HyperOS/MIUI are properly detected.
-     * Wrapped in defensive try/catch to protect against OEM ROM exceptions.
      */
     override fun isAvailable(): Boolean {
         return try {
@@ -89,9 +94,11 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
         onError: (String) -> Unit
     ) {
         mainHandler.post {
+            val activeContext: Context = AndroidVoiceBridge.activityProvider?.invoke() ?: context
+
             // 1. Verify Audio Recording Permission
             if (ContextCompat.checkSelfPermission(
-                    context,
+                    activeContext,
                     Manifest.permission.RECORD_AUDIO
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
@@ -145,8 +152,8 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
 
             // Check if in-process SpeechRecognizer service is available
             val canUseInProcess = try {
-                SpeechRecognizer.isRecognitionAvailable(context) ||
-                    context.packageManager.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0).isNotEmpty()
+                SpeechRecognizer.isRecognitionAvailable(activeContext) ||
+                    activeContext.packageManager.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0).isNotEmpty()
             } catch (_: Throwable) {
                 false
             }
@@ -157,9 +164,9 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
                 return@post
             }
 
-            // Branch A: Native in-process SpeechRecognizer
+            // Branch A: Native in-process SpeechRecognizer using foreground Activity context
             try {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(activeContext).apply {
                     setRecognitionListener(object : RecognitionListener {
                         override fun onReadyForSpeech(params: Bundle?) {}
                         override fun onBeginningOfSpeech() {}
@@ -177,34 +184,40 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
                         }
 
                         override fun onError(error: Int) {
-                            // On Xiaomi HyperOS / OEM ROMs, ERROR_CLIENT (5), ERROR_RECOGNIZER_BUSY (8),
-                            // or ERROR_SERVER (3) indicate IPC binding / background restriction failures.
-                            // Fallback to Branch B system dialog instead of failing.
-                            if (error == SpeechRecognizer.ERROR_CLIENT ||
-                                error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
-                                error == SpeechRecognizer.ERROR_SERVER
-                            ) {
-                                launchBranchB(
-                                    when (error) {
-                                        SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT"
-                                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY"
-                                        else -> "ERROR_SERVER"
-                                    }
-                                )
+                            val hasAppPermission = ContextCompat.checkSelfPermission(
+                                activeContext,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+
+                            // If the app genuinely does NOT have permission, report PERMISSION_DENIED
+                            if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS && !hasAppPermission) {
+                                releaseHardwareInternal()
+                                onError("PERMISSION_DENIED")
                                 return
                             }
 
-                            releaseHardwareInternal()
-                            val errorKey = when (error) {
-                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "PERMISSION_DENIED"
-                                SpeechRecognizer.ERROR_NO_MATCH -> "NO_MATCH"
-                                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "SPEECH_TIMEOUT"
-                                SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO"
-                                SpeechRecognizer.ERROR_NETWORK -> "ERROR_NETWORK"
-                                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "ERROR_NETWORK_TIMEOUT"
-                                else -> "ERROR_$error"
+                            // If no speech heard or timeout:
+                            if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                                releaseHardwareInternal()
+                                onError(if (error == SpeechRecognizer.ERROR_NO_MATCH) "NO_MATCH" else "SPEECH_TIMEOUT")
+                                return
                             }
-                            onError(errorKey)
+
+                            // On Xiaomi HyperOS / MIUI OEM ROMs, any other error:
+                            // (ERROR_INSUFFICIENT_PERMISSIONS despite app having permission, ERROR_CLIENT,
+                            //  ERROR_RECOGNIZER_BUSY, ERROR_SERVER, ERROR_AUDIO, ERROR_NETWORK)
+                            // indicates the in-process IPC service failed or was restricted.
+                            // Seamlessly fallback to Branch B (System Speech Dialog) instead of deflecting to keyboard.
+                            launchBranchB(
+                                when (error) {
+                                    SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT"
+                                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY"
+                                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "ERROR_INSUFFICIENT_PERMISSIONS"
+                                    SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO"
+                                    SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER"
+                                    else -> "ERROR_$error"
+                                }
+                            )
                         }
 
                         override fun onResults(results: Bundle?) {
@@ -228,7 +241,8 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar")
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ar")
                     putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ar-SA", "ar-EG", "ar-PS", "ar-JO"))
-                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 }
 
                 speechRecognizer?.startListening(intent)
@@ -242,7 +256,6 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
     override fun stopListening() {
         mainHandler.post {
             try {
-                // stopListening allows recognition to process buffered speech and invoke onResults
                 speechRecognizer?.stopListening()
             } catch (_: Exception) {
             }
@@ -276,5 +289,5 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
  */
 actual fun createVoiceEngine(context: Any?): VoiceEngine? {
     val ctx = (context as? Context) ?: AndroidContextHolder.context ?: return null
-    return AndroidVoiceEngine(ctx.applicationContext)
+    return AndroidVoiceEngine(ctx)
 }

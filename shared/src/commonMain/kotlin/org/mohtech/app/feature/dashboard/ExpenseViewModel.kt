@@ -154,6 +154,9 @@ class ExpenseViewModel(
                                 _effects.emit(ExpenseEffect.ShowToast("لم نتمكن من سماع الصوت، يرجى المحاولة ثانية"))
                             }
                         }
+                        "SPEECH_CANCELLED" -> {
+                            // User dismissed or closed the speech dialog, cleanly stay on dashboard
+                        }
                         else -> {
                             viewModelScope.launch {
                                 _effects.emit(ExpenseEffect.ShowToast("تعذر التعرف على الصوت، يمكنك استخدام الإدخال اليدوي"))
