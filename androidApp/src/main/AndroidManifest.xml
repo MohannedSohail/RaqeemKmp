@@ -4,9 +4,20 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <queries>
+        <!-- In-process speech recognition service -->
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
+        <!-- System speech recognition activity (Branch B fallback) -->
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+        <!-- Google Speech Services -->
+        <package android:name="com.google.android.googlequicksearchbox" />
+        <package android:name="com.google.android.tts" />
+        <!-- Xiaomi MIUI / HyperOS Speech Services -->
+        <package android:name="com.miui.voiceassist" />
+        <package android:name="com.xiaomi.mibrain.speech" />
     </queries>
 
     <application

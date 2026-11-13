@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -45,16 +47,24 @@ import org.mohtech.app.feature.dashboard.ExpenseViewModel
 @Composable
 fun DashboardScreen(
     viewModel: ExpenseViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRequestMicPermission: (() -> Unit)? = null
 ) {
     val state by viewModel.uiState.collectAsState()
     val haptic = LocalHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
                 is ExpenseEffect.TriggerHapticFeedback -> {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+                is ExpenseEffect.RequestMicPermission -> {
+                    onRequestMicPermission?.invoke()
+                }
+                is ExpenseEffect.ShowToast -> {
+                    snackbarHostState.showSnackbar(effect.message)
                 }
                 else -> {}
             }
@@ -72,6 +82,12 @@ fun DashboardScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = RaqeemColors.BackgroundSlate,
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.padding(bottom = 96.dp)
+            )
+        },
         topBar = {
             DashboardTopBar(
                 onOpenManualSheet = {

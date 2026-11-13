@@ -17,7 +17,10 @@ import org.mohtech.app.feature.dashboard.ui.DashboardScreen
 import org.mohtech.app.feature.onboarding.OnboardingScreen
 
 @Composable
-fun App(voiceEngine: VoiceEngine? = remember { createVoiceEngine() }) {
+fun App(
+    voiceEngine: VoiceEngine? = remember { createVoiceEngine() },
+    onRequestMicPermission: (() -> Unit)? = null
+) {
     val preferences = remember { createAppPreferences() }
     val storage = remember { createPlatformExpenseStorage() }
     val repository = remember { LocalExpenseRepository(storage, preferences) }
@@ -39,7 +42,10 @@ fun App(voiceEngine: VoiceEngine? = remember { createVoiceEngine() }) {
                 }
             )
         } else {
-            DashboardScreen(viewModel = viewModel)
+            DashboardScreen(
+                viewModel = viewModel,
+                onRequestMicPermission = onRequestMicPermission
+            )
         }
     }
 }
