@@ -210,32 +210,36 @@ class AndroidLocalSpeechTranscriber(
             modelsDir.mkdirs()
         }
         val candidate = File(modelsDir, fileName)
-        if (candidate.exists() && candidate.isFile && candidate.length() > 0) return candidate
+        if (candidate.exists() && candidate.isFile && candidate.length() > 1000) return candidate
 
         // Auto-extract model bundled inside APK assets (for Google Play distribution)
-        try {
-            val assetList = appContext.assets.list("models")
-            if (assetList != null && assetList.contains(fileName)) {
+        val assetPaths = listOf("models/$fileName", fileName)
+        for (assetPath in assetPaths) {
+            try {
                 val tempFile = File(modelsDir, "$fileName.tmp")
-                appContext.assets.open("models/$fileName").use { input ->
+                appContext.assets.open(assetPath).use { input ->
                     tempFile.outputStream().use { output ->
                         input.copyTo(output)
                     }
                 }
-                if (tempFile.renameTo(candidate) && candidate.exists()) {
-                    return candidate
+                if (tempFile.exists() && tempFile.length() > 1000) {
+                    if (candidate.exists()) candidate.delete()
+                    if (tempFile.renameTo(candidate) && candidate.exists()) {
+                        android.util.Log.i("AndroidWhisper", "Successfully extracted model $fileName from assets ($assetPath)")
+                        return candidate
+                    }
                 }
+            } catch (_: Throwable) {
+                // Asset path not found or extraction skipped, try next
             }
-        } catch (_: Throwable) {
-            // Asset extraction skipped or failed gracefully
         }
 
         val rootCandidate = File(appContext.filesDir, fileName)
-        if (rootCandidate.exists() && rootCandidate.isFile && rootCandidate.length() > 0) return rootCandidate
+        if (rootCandidate.exists() && rootCandidate.isFile && rootCandidate.length() > 1000) return rootCandidate
         val extDir = appContext.getExternalFilesDir("models")
         if (extDir != null) {
             val extCandidate = File(extDir, fileName)
-            if (extCandidate.exists() && extCandidate.isFile && extCandidate.length() > 0) return extCandidate
+            if (extCandidate.exists() && extCandidate.isFile && extCandidate.length() > 1000) return extCandidate
         }
         return null
     }

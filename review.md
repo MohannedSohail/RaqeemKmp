@@ -67,3 +67,23 @@
    - حماية المحتوى من شريط التنقل السفلي عبر `navigationBarsPadding()`.
    - هوامش جانبية مريحة (20-24dp).
 
+---
+
+## 🎙️ محرك Whisper الأوفلاين الفعلي ومكتبة JNI (Live Hardware Proof)
+1. **بناء مكتبة JNI الأصلية (`libwhisper.so`):**
+   - تجميع كامل لمكتبة `whisper.cpp` و `ggml` و واجهات JNI الخاصة بـ `AndroidLocalSpeechTranscriber` باستخدام NDK `30.0.16248370` و CMake `4.1.2` لمعمارية `arm64-v8a`.
+   - المسار: `androidApp/src/main/jniLibs/arm64-v8a/libwhisper.so` (بحجم ~22 ميجابايت مدمجة).
+2. **تضمين نموذج `ggml-tiny.bin` داخل التطبيق (Integrated In-APK):**
+   - تم تنزيل النموذج الخفيف وحفظه في `androidApp/src/main/assets/models/ggml-tiny.bin` (بحجم ~74 ميجابايت).
+   - تم تفعيل الاستخراج الذاتي التلقائي في أول تشغيل إلى `context.filesDir/models/`.
+3. **إثبات التشغيل والمعالجة الحقيقية على جهاز Redmi Note 8 Pro عبر Logcat:**
+   ```text
+   I AndroidWhisper: Successfully extracted model ggml-tiny.bin from assets (models/ggml-tiny.bin)
+   I WhisperJNI: Loading Whisper model from /data/user/0/org.mohtech.app/files/models/ggml-tiny.bin
+   I WhisperJNI: Whisper model loaded successfully: 0xb400006edd41b200
+   I WhisperJNI: Starting whisper_full inference (samples: 46720, lang: ar, threads: 4)
+   I WhisperJNI: whisper_full succeeded, transcribed 1 segments, len: 20
+   I WhisperJNI: Freeing Whisper model context: 0xb400006edd41b200
+   ```
+   يعمل التحويل الصوتي محلياً بنسبة 100% دون أي اتصال شبكي ودون أي خدمات من Google.
+
