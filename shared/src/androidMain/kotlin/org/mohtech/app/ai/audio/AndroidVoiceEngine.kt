@@ -3,33 +3,34 @@ package org.mohtech.app.ai.audio
 import android.Manifest
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.speech.RecognitionListener
-import android.speech.RecognitionService
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import org.mohtech.app.ai.whisper.AndroidLocalSpeechTranscriber
+import org.mohtech.app.ai.whisper.AndroidRawAudioRecorder
+import org.mohtech.app.ai.whisper.SpeechError
+import org.mohtech.app.ai.whisper.TranscribeResult
 import org.mohtech.app.data.storage.AndroidContextHolder
 
 /**
  * AndroidVoiceBridge:
- * Bridges platform Activity capabilities (foreground Activity context, system speech dialog intent,
- * and permission launchers) with the cross-platform AndroidVoiceEngine without memory leaks.
+ * Bridges platform Activity capabilities (foreground Activity context
+ * and runtime mic permission launcher) with AndroidVoiceEngine without memory leaks.
  */
 object AndroidVoiceBridge {
     /**
      * Delegate to retrieve the current foreground Activity context.
-     * SpeechRecognizer requires an Activity context for proper AudioRecord attribution.
      */
     var activityProvider: (() -> Activity?)? = null
 
     /**
-     * Delegate to launch system speech recognition dialog (Branch B fallback).
-     * Invoked with (onResult: (String) -> Unit, onError: (String) -> Unit).
+     * Legacy speech intent delegate slot (kept for backward compatibility, not used in offline-first mode).
      */
     var speechIntentLauncher: ((onResult: (String) -> Unit, onError: (String) -> Unit) -> Unit)? = null
 
@@ -42,42 +43,22 @@ object AndroidVoiceBridge {
 
 /**
  * AndroidVoiceEngine:
- * Handles Arabic speech recognition with safe mic hardware release, Activity context attribution,
- * and dual-branch fallback to eliminate the "insufficient permissions" error on Xiaomi HyperOS/MIUI devices.
+ * 100% offline Arabic voice capture and speech processing engine backed by
+ * on-device AndroidRawAudioRecorder and local Whisper STT.
  */
 class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
 
-    private var speechRecognizer: SpeechRecognizer? = null
+    private var audioRecorder: AndroidRawAudioRecorder? = null
+    private var transcriber: AndroidLocalSpeechTranscriber? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var engineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
-    /**
-     * Dual verification: verifies both in-process RecognitionService AND speech intent activity.
-     * Uses flag 0 (instead of MATCH_DEFAULT_ONLY) so OEM speech recognition services
-     * on Xiaomi HyperOS/MIUI are properly detected.
-     */
+    private var activeOnResult: ((String) -> Unit)? = null
+    private var activeOnError: ((String) -> Unit)? = null
+
     override fun isAvailable(): Boolean {
         return try {
-            val hasService = try {
-                if (SpeechRecognizer.isRecognitionAvailable(context)) {
-                    true
-                } else {
-                    val intent = Intent(RecognitionService.SERVICE_INTERFACE)
-                    val services = context.packageManager.queryIntentServices(intent, 0)
-                    services.isNotEmpty()
-                }
-            } catch (_: Throwable) {
-                false
-            }
-
-            val hasActivity = try {
-                val activityIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                val activities = context.packageManager.queryIntentActivities(activityIntent, 0)
-                activities.isNotEmpty()
-            } catch (_: Throwable) {
-                false
-            }
-
-            hasService || hasActivity || AndroidVoiceBridge.speechIntentLauncher != null
+            context.packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)
         } catch (_: Throwable) {
             false
         }
@@ -119,163 +100,99 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
                 return@post
             }
 
-            // 2. Verify Speech Recognition Capability
-            if (!isAvailable()) {
-                onError("SPEECH_NOT_AVAILABLE")
-                return@post
-            }
-
             // Clean up any previous session before starting a new one
             releaseHardwareInternal()
 
-            // Helper to trigger Branch B (System Speech Dialog Fallback)
-            fun launchBranchB(fallbackReason: String) {
-                releaseHardwareInternal()
-                val launcher = AndroidVoiceBridge.speechIntentLauncher
-                if (launcher != null) {
-                    launcher(
-                        { text ->
-                            if (text.isNotBlank()) {
-                                onResult(text)
-                            } else {
-                                onError("NO_MATCH")
-                            }
-                        },
-                        { errorKey ->
-                            onError(errorKey)
+            activeOnResult = onResult
+            activeOnError = onError
+
+            val recorder = AndroidRawAudioRecorder(activeContext)
+            audioRecorder = recorder
+
+            if (transcriber == null) {
+                transcriber = AndroidLocalSpeechTranscriber(activeContext)
+            }
+
+            recorder.startRecording(
+                onAmplitudeChanged = { amplitude ->
+                    mainHandler.post {
+                        onAmplitudeChanged(amplitude)
+                    }
+                },
+                onError = { speechError ->
+                    mainHandler.post {
+                        when (speechError) {
+                            SpeechError.PermissionDenied -> onError("PERMISSION_DENIED")
+                            SpeechError.ModelMissing -> onError("MODEL_MISSING")
+                            SpeechError.EmptyResult -> onError("NO_MATCH")
+                            else -> onError("AUDIO_ERROR")
                         }
-                    )
-                } else {
-                    onError(fallbackReason)
+                    }
                 }
-            }
-
-            // Check if in-process SpeechRecognizer service is available
-            val canUseInProcess = try {
-                SpeechRecognizer.isRecognitionAvailable(activeContext) ||
-                    activeContext.packageManager.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0).isNotEmpty()
-            } catch (_: Throwable) {
-                false
-            }
-
-            if (!canUseInProcess) {
-                // In-process service unavailable -> directly launch Branch B
-                launchBranchB("SPEECH_NOT_AVAILABLE")
-                return@post
-            }
-
-            // Branch A: Native in-process SpeechRecognizer using foreground Activity context
-            try {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(activeContext).apply {
-                    setRecognitionListener(object : RecognitionListener {
-                        override fun onReadyForSpeech(params: Bundle?) {}
-                        override fun onBeginningOfSpeech() {}
-
-                        override fun onRmsChanged(rmsdB: Float) {
-                            // Normalize -2dB..10dB to 0.0..1.0
-                            val normalized = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
-                            onAmplitudeChanged(normalized)
-                        }
-
-                        override fun onBufferReceived(buffer: ByteArray?) {}
-
-                        override fun onEndOfSpeech() {
-                            onAmplitudeChanged(0f)
-                        }
-
-                        override fun onError(error: Int) {
-                            val hasAppPermission = ContextCompat.checkSelfPermission(
-                                activeContext,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-
-                            // If the app genuinely does NOT have permission, report PERMISSION_DENIED
-                            if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS && !hasAppPermission) {
-                                releaseHardwareInternal()
-                                onError("PERMISSION_DENIED")
-                                return
-                            }
-
-                            // If no speech heard or timeout:
-                            if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                                releaseHardwareInternal()
-                                onError(if (error == SpeechRecognizer.ERROR_NO_MATCH) "NO_MATCH" else "SPEECH_TIMEOUT")
-                                return
-                            }
-
-                            // On Xiaomi HyperOS / MIUI OEM ROMs, any other error:
-                            // (ERROR_INSUFFICIENT_PERMISSIONS despite app having permission, ERROR_CLIENT,
-                            //  ERROR_RECOGNIZER_BUSY, ERROR_SERVER, ERROR_AUDIO, ERROR_NETWORK)
-                            // indicates the in-process IPC service failed or was restricted.
-                            // Seamlessly fallback to Branch B (System Speech Dialog) instead of deflecting to keyboard.
-                            launchBranchB(
-                                when (error) {
-                                    SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT"
-                                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY"
-                                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "ERROR_INSUFFICIENT_PERMISSIONS"
-                                    SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO"
-                                    SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER"
-                                    else -> "ERROR_$error"
-                                }
-                            )
-                        }
-
-                        override fun onResults(results: Bundle?) {
-                            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            val text = matches?.firstOrNull()?.trim().orEmpty()
-                            releaseHardwareInternal()
-                            if (text.isNotBlank()) {
-                                onResult(text)
-                            } else {
-                                onError("NO_MATCH")
-                            }
-                        }
-
-                        override fun onPartialResults(partialResults: Bundle?) {}
-                        override fun onEvent(eventType: Int, params: Bundle?) {}
-                    })
-                }
-
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar")
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ar")
-                    putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ar-SA", "ar-EG", "ar-PS", "ar-JO"))
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                }
-
-                speechRecognizer?.startListening(intent)
-            } catch (e: Exception) {
-                // If creating or starting SpeechRecognizer throws, fallback to Branch B
-                launchBranchB("CLIENT_ERROR: ${e.message}")
-            }
+            )
         }
     }
 
     override fun stopListening() {
         mainHandler.post {
-            try {
-                speechRecognizer?.stopListening()
-            } catch (_: Exception) {
+            val recorder = audioRecorder
+            val pcm = recorder?.stopRecording()
+            audioRecorder = null
+
+            val onResult = activeOnResult
+            val onError = activeOnError
+            activeOnResult = null
+            activeOnError = null
+
+            if (pcm == null || pcm.isEmpty()) {
+                onError?.invoke("NO_MATCH")
+                return@post
+            }
+
+            val localTranscriber = transcriber ?: AndroidLocalSpeechTranscriber(context).also { transcriber = it }
+
+            engineScope.launch {
+                val result = localTranscriber.transcribe(pcm)
+                when (result) {
+                    is TranscribeResult.Success -> {
+                        if (result.text.isNotBlank()) {
+                            onResult?.invoke(result.text)
+                        } else {
+                            onError?.invoke("NO_MATCH")
+                        }
+                    }
+                    is TranscribeResult.Failure -> {
+                        when (result.error) {
+                            SpeechError.EmptyResult -> onError?.invoke("NO_MATCH")
+                            SpeechError.PermissionDenied -> onError?.invoke("PERMISSION_DENIED")
+                            SpeechError.ModelMissing -> onError?.invoke("MODEL_MISSING")
+                            else -> onError?.invoke("TRANSCRIPTION_FAILED")
+                        }
+                    }
+                }
             }
         }
     }
 
     private fun releaseHardwareInternal() {
         try {
-            speechRecognizer?.stopListening()
-            speechRecognizer?.cancel()
-            speechRecognizer?.destroy()
-        } catch (_: Exception) {
+            audioRecorder?.stopRecording()
+            audioRecorder?.release()
+        } catch (_: Throwable) {
         } finally {
-            speechRecognizer = null
+            audioRecorder = null
         }
+        activeOnResult = null
+        activeOnError = null
     }
 
     override fun release() {
         mainHandler.post {
             releaseHardwareInternal()
+            transcriber?.release()
+            transcriber = null
+            engineScope.cancel()
+            engineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
         }
     }
 

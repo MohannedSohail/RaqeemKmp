@@ -35,6 +35,15 @@ class JvmAppPreferences : AppPreferences {
         save()
     }
 
+    override fun getWeeklyBudget(): Double {
+        return properties.getProperty("weekly_budget")?.toDoubleOrNull() ?: 2500.0
+    }
+
+    override fun setWeeklyBudget(budget: Double) {
+        properties.setProperty("weekly_budget", budget.toString())
+        save()
+    }
+
     private fun save() {
         configFile.outputStream().use { properties.store(it, "Raqeem Config") }
     }

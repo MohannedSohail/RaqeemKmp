@@ -25,6 +25,14 @@ class AndroidAppPreferences(context: Context) : AppPreferences {
     override fun setPreferredCurrency(currency: String) {
         prefs.edit().putString("preferred_currency", currency).apply()
     }
+
+    override fun getWeeklyBudget(): Double {
+        return prefs.getString("weekly_budget", null)?.toDoubleOrNull() ?: 2500.0
+    }
+
+    override fun setWeeklyBudget(budget: Double) {
+        prefs.edit().putString("weekly_budget", budget.toString()).apply()
+    }
 }
 
 actual fun createAppPreferences(context: Any?): AppPreferences {

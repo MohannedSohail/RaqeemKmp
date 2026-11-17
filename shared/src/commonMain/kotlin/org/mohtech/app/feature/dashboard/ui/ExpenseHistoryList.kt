@@ -42,7 +42,8 @@ fun ExpenseHistorySection(
     selectedCategory: ExpenseCategory?,
     onSelectCategory: (ExpenseCategory?) -> Unit,
     onDeleteExpense: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onEditExpense: (ExpenseItem) -> Unit = {}
 ) {
     Column(modifier = modifier) {
         // Section Header
@@ -100,6 +101,7 @@ fun ExpenseHistorySection(
                 expenses.forEach { item ->
                     ExpenseItemCard(
                         item = item,
+                        onClick = { onEditExpense(item) },
                         onDelete = { onDeleteExpense(item.id) }
                     )
                 }
@@ -152,6 +154,7 @@ private fun CategoryChip(
 @Composable
 private fun ExpenseItemCard(
     item: ExpenseItem,
+    onClick: () -> Unit = {},
     onDelete: () -> Unit
 ) {
     val categoryColor = Color(item.category.colorHex)
@@ -162,6 +165,11 @@ private fun ExpenseItemCard(
             .clip(RoundedCornerShape(16.dp))
             .background(RaqeemColors.SurfaceCard)
             .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = true, color = RaqeemColors.EmeraldGreen),
+                onClick = onClick
+            )
             .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Row(

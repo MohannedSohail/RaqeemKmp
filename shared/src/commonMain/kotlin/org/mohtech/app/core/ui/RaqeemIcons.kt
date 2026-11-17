@@ -305,5 +305,44 @@ object RaqeemIcons {
             drawPath(checkPath, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
     }
+
+    @Composable
+    fun Export(
+        modifier: Modifier = Modifier,
+        size: Dp = 18.dp,
+        tint: Color = RaqeemColors.TextSecondary,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            // Tray / box bottom
+            val trayPath = Path().apply {
+                moveTo(w * 0.20f, h * 0.55f)
+                lineTo(w * 0.20f, h * 0.85f)
+                lineTo(w * 0.80f, h * 0.85f)
+                lineTo(w * 0.80f, h * 0.55f)
+            }
+            drawPath(trayPath, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+            // Arrow pointing up
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.5f, h * 0.65f),
+                end = Offset(w * 0.5f, h * 0.18f),
+                strokeWidth = sw,
+                cap = StrokeCap.Round
+            )
+            // Arrow head
+            val arrowHead = Path().apply {
+                moveTo(w * 0.32f, h * 0.34f)
+                lineTo(w * 0.5f, h * 0.16f)
+                lineTo(w * 0.68f, h * 0.34f)
+            }
+            drawPath(arrowHead, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+    }
 }
 

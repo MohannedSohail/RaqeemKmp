@@ -10,6 +10,9 @@ interface AppPreferences {
     fun setOnboardingCompleted(completed: Boolean)
     fun getPreferredCurrency(): String
     fun setPreferredCurrency(currency: String)
+
+    fun getWeeklyBudget(): Double
+    fun setWeeklyBudget(budget: Double)
 }
 
 /**

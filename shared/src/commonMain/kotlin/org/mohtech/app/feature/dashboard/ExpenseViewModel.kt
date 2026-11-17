@@ -13,6 +13,11 @@ import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import org.mohtech.app.ai.audio.VoiceEngine
 import org.mohtech.app.ai.nlp.LocalDialectExpenseParser
+import org.mohtech.app.ai.whisper.LocalSpeechTranscriber
+import org.mohtech.app.ai.whisper.RawAudioRecorder
+import org.mohtech.app.ai.whisper.SpeechError
+import org.mohtech.app.ai.whisper.TranscribeResult
+import org.mohtech.app.ai.whisper.WhisperModelConfig
 import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
@@ -24,7 +29,9 @@ class ExpenseViewModel(
     private val repository: ExpenseRepository,
     private val preferences: AppPreferences,
     private val parser: LocalDialectExpenseParser = LocalDialectExpenseParser(),
-    private val voiceEngine: VoiceEngine? = null
+    private val voiceEngine: VoiceEngine? = null,
+    private val transcriber: LocalSpeechTranscriber? = null,
+    private val audioRecorder: RawAudioRecorder? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -53,10 +60,12 @@ class ExpenseViewModel(
             is ExpenseIntent.ParseBankSms -> parseBankSms(intent.smsBody)
             is ExpenseIntent.ConfirmBatch -> confirmBatch(intent.batch)
             is ExpenseIntent.DeleteExpense -> deleteExpense(intent.expenseId)
+            is ExpenseIntent.EditExpense -> editExpense(intent.item)
             is ExpenseIntent.FilterByCategory -> filterByCategory(intent.category)
             is ExpenseIntent.OpenManualSheet -> openManualSheet()
             is ExpenseIntent.DismissReviewSheet -> dismissReviewSheet()
             is ExpenseIntent.DismissFallbackSheet -> dismissFallbackSheet()
+            is ExpenseIntent.DismissPermissionRationale -> dismissPermissionRationale()
             is ExpenseIntent.CompleteOnboarding -> completeOnboarding()
         }
     }
@@ -97,6 +106,45 @@ class ExpenseViewModel(
         viewModelScope.launch {
             if (_uiState.value.isRecording) return@launch
             _effects.emit(ExpenseEffect.TriggerHapticFeedback)
+
+            if (audioRecorder != null || transcriber != null) {
+                if (transcriber?.isModelReady() == false) {
+                    _uiState.update {
+                        it.copy(
+                            isRecording = false,
+                            showFallbackManualSheet = true
+                        )
+                    }
+                    return@launch
+                }
+                if (audioRecorder == null) {
+                    _uiState.update {
+                        it.copy(
+                            isRecording = false,
+                            showFallbackManualSheet = true
+                        )
+                    }
+                    return@launch
+                }
+
+                _uiState.update {
+                    it.copy(
+                        isRecording = true,
+                        recordingAmplitude = 0f,
+                        userErrorMessage = null
+                    )
+                }
+
+                audioRecorder.startRecording(
+                    onAmplitudeChanged = { amp ->
+                        updateAmplitude(amp)
+                    },
+                    onError = { error ->
+                        handleSpeechError(error)
+                    }
+                )
+                return@launch
+            }
 
             val engine = voiceEngine
             if (engine == null || !engine.isAvailable()) {
@@ -149,9 +197,14 @@ class ExpenseViewModel(
                                 )
                             }
                         }
+                        "NETWORK_ERROR" -> {
+                            viewModelScope.launch {
+                                _effects.emit(ExpenseEffect.ShowToast("يتطلب التعرف الصوتي اتصالاً بالإنترنت أو تنزيل حزمة العربية دون اتصال"))
+                            }
+                        }
                         "NO_MATCH", "SPEECH_TIMEOUT" -> {
                             viewModelScope.launch {
-                                _effects.emit(ExpenseEffect.ShowToast("لم نتمكن من سماع الصوت، يرجى المحاولة ثانية"))
+                                _effects.emit(ExpenseEffect.ShowToast("لم نتمكن من سماع الصوت بوضوح، يرجى المحاولة ثانية"))
                             }
                         }
                         "SPEECH_CANCELLED" -> {
@@ -172,7 +225,101 @@ class ExpenseViewModel(
     private fun stopRecording() {
         if (!_uiState.value.isRecording) return
         _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+
+        if (audioRecorder != null) {
+            val pcm = audioRecorder.stopRecording()
+            if (pcm == null) {
+                _uiState.update { it.copy(userErrorMessage = "تعذر استرجاع التسجيل الصوتي") }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast("تعذر استرجاع التسجيل الصوتي"))
+                }
+                return
+            }
+
+            if (transcriber != null) {
+                viewModelScope.launch {
+                    val result = transcriber.transcribe(pcm, WhisperModelConfig(language = "ar"))
+                    when (result) {
+                        is TranscribeResult.Success -> {
+                            if (result.text.isNotBlank()) {
+                                parseManualSpeechText(result.text)
+                            } else {
+                                handleSpeechError(SpeechError.EmptyResult)
+                            }
+                        }
+                        is TranscribeResult.Failure -> {
+                            handleSpeechError(result.error)
+                        }
+                    }
+                }
+            }
+            return
+        }
+
         voiceEngine?.stopListening()
+    }
+
+    private fun handleSpeechError(error: SpeechError) {
+        _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+        when (error) {
+            is SpeechError.PermissionDenied -> {
+                _uiState.update {
+                    it.copy(
+                        showPermissionRationaleDialog = true,
+                        showPermissionRationaleSheet = true
+                    )
+                }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.RequestMicPermission)
+                    _effects.emit(ExpenseEffect.ShowToast("يرجى منح إذن استخدام الميكروفون"))
+                }
+            }
+            is SpeechError.ModelMissing -> {
+                _uiState.update { it.copy(showFallbackManualSheet = true) }
+            }
+            is SpeechError.EmptyResult -> {
+                _uiState.update { it.copy(userErrorMessage = "لم يتم التقاط أي كلام، حاول مجدداً") }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
+                }
+            }
+            is SpeechError.AudioCapture -> {
+                _uiState.update { it.copy(userErrorMessage = "تعذر تسجيل الصوت من الميكروفون") }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast("تعذر تسجيل الصوت من الميكروفون"))
+                }
+            }
+            is SpeechError.ModelLoadFailed, is SpeechError.InitializationFailed -> {
+                _uiState.update {
+                    it.copy(
+                        showFallbackManualSheet = true,
+                        userErrorMessage = "تعذر تحميل نموذج التعرف الصوتي"
+                    )
+                }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast("تعذر تحميل نموذج التعرف الصوتي"))
+                }
+            }
+            is SpeechError.TranscriptionFailed -> {
+                _uiState.update { it.copy(userErrorMessage = "فشلت عملية معالجة الصوت") }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast("فشلت عملية معالجة الصوت"))
+                }
+            }
+            is SpeechError.OutOfMemory -> {
+                _uiState.update { it.copy(userErrorMessage = "ذاكرة الجهاز غير كافية لمعالجة الصوت") }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast("ذاكرة الجهاز غير كافية لمعالجة الصوت"))
+                }
+            }
+            is SpeechError.Unknown -> {
+                val msg = error.message.ifBlank { "حدث خطأ غير متوقع أثناء التعرف على الصوت" }
+                _uiState.update { it.copy(userErrorMessage = msg) }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast(msg))
+                }
+            }
+        }
     }
 
     private fun updateAmplitude(amplitude: Float) {
@@ -244,6 +391,20 @@ class ExpenseViewModel(
         }
     }
 
+    private fun editExpense(item: ExpenseItem) {
+        val batch = ExpenseBatch(
+            batchId = "batch_edit_${item.id}",
+            items = listOf(item),
+            totalBatchAmount = item.amount,
+            createdAt = item.timestamp
+        )
+        _uiState.update { it.copy(reviewSheetPendingBatch = batch) }
+    }
+
+    fun exportCsv(): String = repository.exportCsv(_uiState.value.recentExpenses)
+
+    fun exportJson(): String = repository.exportJson(_uiState.value.recentExpenses)
+
     private fun filterByCategory(category: ExpenseCategory?) {
         _uiState.update { state ->
             val filtered = if (category == null) {
@@ -270,6 +431,15 @@ class ExpenseViewModel(
         _uiState.update { it.copy(showFallbackManualSheet = false) }
     }
 
+    private fun dismissPermissionRationale() {
+        _uiState.update {
+            it.copy(
+                showPermissionRationaleDialog = false,
+                showPermissionRationaleSheet = false
+            )
+        }
+    }
+
     private fun completeOnboarding() {
         preferences.setOnboardingCompleted(true)
         _uiState.update { it.copy(isOnboardingDone = true) }
@@ -278,5 +448,7 @@ class ExpenseViewModel(
     public override fun onCleared() {
         super.onCleared()
         voiceEngine?.release()
+        transcriber?.release()
+        audioRecorder?.release()
     }
 }

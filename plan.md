@@ -1,163 +1,99 @@
 # 🗺️ Raqeem (رقيم) - Master Implementation Plan (plan.md)
 
-This actionable roadmap details the step-by-step engineering execution under the **Spec-Kit SDLC Protocol**, specifying tasks, files, testing commands, and verification criteria.
+## 📌 الإصدار 2.1: خطة تنفيذ Whisper الأوفلاين 100% (Spec Kit SDLC)
+
+تتبع هذه الخطة منهجية التطوير الموجه بالمواصفات (TDD / Spec-Kit)، بتسلسل صارم: **Red (فشل الاختبارات أولاً) ➔ Green (كتابة الكود لتمرير الاختبارات) ➔ Refactor & Audit (التنقيح والتدقيق)**.
+تم تشغيل الأوامر الفعلية وتوثيق مخرجاتها في `review.md`.
 
 ---
 
-## 📅 Roadmap Overview
+## 🏗️ 0. حسم قرار ربط Whisper JNI مع نظام البناء (Build & JNI Decision)
 
-```text
-Milestone 1: Spec-Kit Artifacts & CI/CD Pipeline (AGENTS.md, intent.md, spec.md, plan.md, .github/workflows)
-Milestone 2: KMP Core Dependencies & Design Tokens (Cairo font, Theme, Arabic RTL setup)
-Milestone 3: Domain Models & TDD Test Suites (DialectParserTest, StorageSerializationTest, MviViewModelTest)
-Milestone 4: Pure Kotlin Local Arabic Dialect Parser (LocalDialectExpenseParser implementation)
-Milestone 5: Offline Storage & Preferences (AppPreferences expect/actual, PlatformExpenseStorage)
-Milestone 6: MVI ViewModel & State Machine (ExpenseViewModel, Intent handling, Effect channel)
-Milestone 7: Arabic RTL Compose Multiplatform UI (Dashboard, VoiceButton, Radar, ReviewSheet)
-Milestone 8: Platform Hardware Bindings (Android MediaRecorder / SpeechRecognizer, iOS, Desktop)
-Milestone 9: Quality Audit & Verification (RTL a11y, Zero Memory Leaks, Final Test Suite)
-```
+* **القرار المعماري المعتمد:**
+  بناء مكتبات `libwhisper.so` و`libwhisper_jni.so` لمعمارية `arm64-v8a` ووضعها في `androidApp/src/main/jniLibs/arm64-v8a/` مع واجهات JNI محكمة في `shared/src/androidMain/`.
+* **السبب:**
+  يضمن التوافق المطلق مع Gradle وAmper دون الاعتماد على مسارات NDK الخارجية في بيئة البناء، ويمنع أي تعطل أثناء تجميع التطبيق (`assembleDebug`).
+* **إثبات الجدوى (PoC):**
+  التحقق من قدرة مكتبة JNI وغلاف Kotlin على تحميل النموذج من `filesDir` ومعالجة مصفوفة `ShortArray` صوتية وإرجاع نص عربي.
 
 ---
 
-## 📍 Phase-by-Phase Execution Details
+## 📋 قائمة مراحل التنفيذ (Implementation Checklist)
 
-### Milestone 1: Spec-Kit Artifacts & CI/CD Pipeline
-* **Lead Agent:** `@apex-orchestrator` & `@kmp-engineer`
-* **Artifacts:**
-  - `AGENTS.md` (Swarm definition)
-  - `intent.md` (Product vision & KPIs)
-  - `spec.md` (Domain contracts & MVI schemas)
-  - `plan.md` (This master plan)
-  - `.github/workflows/ci.yml` (GitHub Actions CI for Gradle KMP validation)
-* **Verification:**
-  ```powershell
-  git status
-  ```
+### المرحلة 0: إثبات جدوى Whisper والبيئة (Feasibility Proof & Setup)
+- [x] فحص وتأكيد بنية المجلدات لـ `jniLibs` في `androidApp/src/main/jniLibs/arm64-v8a/`.
+- [x] إضافة ملفات النماذج الثنائية (`*.bin`, `*.ggml`) إلى `.gitignore` لمنع رفعها إلى المستودع.
+- [x] توثيق خطوات نسخ النموذج عبر `adb push` وتجهيز مجلد `assets` في التوثيق.
 
-### Milestone 2: KMP Dependencies & Cairo RTL Theme
-* **Lead Agent:** `@ux-designer` & `@kmp-engineer`
-* **Tasks:**
-  - Update `gradle/libs.versions.toml` with `kotlinx-datetime`, `kotlinx-serialization-json`.
-  - Add Cairo Arabic fonts to `shared/src/commonMain/composeResources/font/`.
-  - Build `RaqeemTheme`, `RaqeemColors`, `RaqeemTypography`, enforcing `LayoutDirection.Rtl`.
-* **Files:**
-  - `gradle/libs.versions.toml`
-  - `shared/build.gradle.kts`
-  - `shared/src/commonMain/kotlin/core/theme/Color.kt`
-  - `shared/src/commonMain/kotlin/core/theme/Typography.kt`
-  - `shared/src/commonMain/kotlin/core/theme/Theme.kt`
-* **Verification:**
-  ```powershell
-  ./gradlew :shared:assemble
-  ```
+---
 
-### Milestone 3: Domain Contracts & TDD Unit Tests
-* **Lead Agent:** `@qa-tester` & `@nlp-specialist`
-* **Tasks:**
-  - Create domain models (`ExpenseItem`, `ExpenseBatch`, `ExpenseCategory`, `Payer`, `ProofType`).
-  - Write `DialectParserTest` in `shared/src/commonTest/kotlin/` with 15+ Arabic colloquial test cases BEFORE writing parser implementation.
-  - Write `StorageSerializationTest` in `shared/src/commonTest/kotlin/`.
-* **Files:**
-  - `shared/src/commonMain/kotlin/data/model/ExpenseModels.kt`
-  - `shared/src/commonTest/kotlin/ai/nlp/DialectParserTest.kt`
-  - `shared/src/commonTest/kotlin/data/StorageSerializationTest.kt`
-* **Verification (Tests MUST fail before Milestone 4):**
-  ```powershell
-  ./gradlew :shared:test
-  ```
+### المرحلة 1: الاختبارات الفاشلة أولاً (Red Phase - TDD in `commonTest`)
+- [x] **اختبارات محاكي Whisper (`FakeTranscriberTest`):**
+  - بناء `FakeTranscriber` و`FakeAudioRecorder` داخل `shared/src/commonTest/kotlin/`.
+  - اختبار معالجة حالات `SpeechError.ModelMissing` و`SpeechError.EmptyResult` و`SpeechError.PermissionDenied`.
+- [x] **اختبارات `ExpenseViewModelTest` المحدثة:**
+  - التحقق من أن الحالة الابتدائية `dailyTotal == 0.0` تماماً (حل P7).
+  - اختبار تدفق التقاط الصوت عبر PCM وظهور `ExpenseReviewSheet` فورياً عند نجاح التحويل.
+  - اختبار عرض رسالة `ModelMissing` وفتح الإدخال الكتابي عند غياب النموذج.
+  - اختبار عرض حوار شرح الإذن عند رفض الميكروفون (حل P9).
+- [x] **اختبارات معالجة الصوت والرياضيات:**
+  - كتابة اختبارات حساب سعة الصوت (RMS) على مصفوفة `ShortArray` ثابتة والتحقق من تطبيع الناتج بين `0.0f` و`1.0f`.
+  - كتابة اختبارات تقطيع الصوت (Audio Chunking) للمقاطع الصوتية التي تتجاوز 30 ثانية.
+- [x] **اختبارات تطهير المانيفست والكود (Purity Check):**
+  - كتابة اختبار تحليلي/فحص نصي يؤكد خلو المشروع من `android.speech.*` و`RecognizerIntent` و`INTERNET`.
+- [x] **اختبارات المستودع للميزات الجديدة (`ExpenseRepositoryTest`):**
+  - اختبار دالة تعديل المصروف `updateExpense` وحفظ التغييرات ذرياً (حل P10).
+  - اختبار تصدير المصروفات بصيغة CSV وJSON محلياً (حل P10).
+  - اختبار حفظ واسترجاع ميزانية الأسبوع في `AppPreferences` (حل P8).
 
-### Milestone 4: Offline Arabic NLP Engine (`LocalDialectExpenseParser`)
-* **Lead Agent:** `@nlp-specialist`
-* **Tasks:**
-  - Implement full offline regex and token matching for Arabic digits (`١، ٢، ٣`) and numbers ("نص", "ربع", "خمسة", "عشرين", "مية", "ألف").
-  - Implement payer detection ("أنا دفعت", "دفع محمد", "على حساب أحمد").
-  - Implement shared expense calculation ("بيني وبين أحمد", "النص بالنص").
-  - Implement smart category dictionary matching.
-  - Implement Bank SMS transaction extraction.
-* **Files:**
-  - `shared/src/commonMain/kotlin/ai/nlp/LocalDialectExpenseParser.kt`
-  - `shared/src/commonMain/kotlin/ai/nlp/ArabicNumberNormalizer.kt`
-  - `shared/src/commonMain/kotlin/ai/nlp/BankSmsParser.kt`
-* **Verification (All TDD tests MUST pass):**
-  ```powershell
-  ./gradlew :shared:test --tests "DialectParserTest"
-  ```
+---
 
-### Milestone 5: Offline Persistence & Preferences
-* **Lead Agent:** `@db-architect`
-* **Tasks:**
-  - Define `AppPreferences` and `PlatformExpenseStorage` `expect/actual` interfaces.
-  - Implement Android actuals using `SharedPreferences` and private app storage.
-  - Implement Desktop JVM actuals using home directory JSON store.
-  - Implement `ExpenseRepository` and `LocalExpenseRepository`.
-* **Files:**
-  - `shared/src/commonMain/kotlin/data/storage/AppPreferences.kt`
-  - `shared/src/commonMain/kotlin/data/storage/PlatformExpenseStorage.kt`
-  - `shared/src/commonMain/kotlin/data/repository/ExpenseRepository.kt`
-  - `shared/src/androidMain/kotlin/data/storage/AppPreferences.android.kt`
-  - `shared/src/jvmMain/kotlin/data/storage/AppPreferences.jvm.kt`
-* **Verification:**
-  ```powershell
-  ./gradlew :shared:test --tests "StorageSerializationTest"
-  ```
+### المرحلة 2: تطبيق خط الصوت ومحرك Whisper (Green Phase - Core Implementation)
+- [x] **تطهير المانيفست وحذف خدمات Google (P1, P4):**
+  - حذف صلاحيات `INTERNET` و`ACCESS_NETWORK_STATE` من `AndroidManifest.xml`.
+  - حذف استعلامات `<queries>` لخدمات Google Speech (`RecognitionService`, Google Quick Search Box).
+- [x] **واجهات KMP النقية (`shared/src/commonMain`):**
+  - إنشاء ملف `WhisperContracts.kt` متضمناً: `LocalSpeechTranscriber`، `RawAudioRecorder`، `SpeechError`، `TranscribeResult`، `WhisperModelConfig`، `InstalledModel`.
+  - حذف الواجهات القديمة المشوهة: `getRecognizedText()`، `isProcessing()`، `PlatformSpeechLauncher`، و`ExpenseEffect.LaunchNativeSpeechRecognition`.
+- [x] **مسجل الصوت الخام (Android `AudioRecord`):**
+  - تطبيق `AndroidRawAudioRecorder` باستخدام `AudioRecord` مع تنسيق 16kHz Mono 16-bit PCM.
+  - حساب RMS المباشر لتغذية موجة الواجهة `getAmplitude()`.
+  - ضمان تحرير الميكروفون بالكامل في كتلة `finally`.
+- [x] **غلاف JNI ومحرك Whisper الفعلي (Android JNI Wrapper):**
+  - ربط دوال JNI الأصلية لـ whisper.cpp: `initModel(path)`، `freeModel()`، `fullTranscribe(pcm, lang, prompt)`.
+  - معالجة عملية التحويل الصوتي في خيط خلفي (`Dispatchers.Default`) مع تقسيم التسجيلات الطويلة (> 30 ثانية).
+- [x] **تطبيق الواجهات على المنصات الأخرى (iOS / Desktop / Wasm) (P6):**
+  - استبدال النصوص الوهمية (Stubs) في المنصات الأخرى بإرجاع صريح لـ `SpeechError.ModelMissing` أو خطأ عدم الدعم.
+- [x] **تحديث `ExpenseViewModel` وحذف تحليل الأخطاء الهش (P3, P7):**
+  - إزالة `contains("5")` وReflection نهائياً.
+  - ضبط القيمة الابتدائية للمجاميع `dailyTotal = 0.0` وحسابها ديناميكياً من المستودع.
+  - ربط استجابات الأخطاء بنصوص عربية واضحة (دون ذكر Google أو الإنترنت).
 
-### Milestone 6: MVI ViewModel & State Engine
-* **Lead Agent:** `@kmp-engineer` & `@qa-tester`
-* **Tasks:**
-  - Implement `ExpenseViewModel` with coroutine scope.
-  - Wire `ExpenseIntent` handlers (recording, parsing, saving, deleting).
-  - Provide `StateFlow<ExpenseUiState>` and `SharedFlow<ExpenseEffect>`.
-  - Author and run `ExpenseViewModelTest` to verify state transitions.
-* **Files:**
-  - `shared/src/commonMain/kotlin/feature/dashboard/ExpenseViewModel.kt`
-  - `shared/src/commonMain/kotlin/feature/dashboard/ExpenseContract.kt`
-  - `shared/src/commonTest/kotlin/feature/dashboard/ExpenseViewModelTest.kt`
-* **Verification:**
-  ```powershell
-  ./gradlew :shared:test --tests "ExpenseViewModelTest"
-  ```
+---
 
-### Milestone 7: Arabic RTL Compose Multiplatform UI
-* **Lead Agent:** `@ux-designer`
-* **Tasks:**
-  - Decompose dashboard into modular composables:
-    - `VoiceRecordButton` with pulsing dynamic amplitude ring.
-    - `BudgetRadarCard` with smooth progress bar and dynamic currency symbol.
-    - `ExpenseHistoryList` with category color badges and RTL alignment.
-    - `ExpenseReviewSheet` showing parsed amounts, multi-payer split chip selector, and confirm button.
-    - `PoliteFallbackSheet` offering Gboard dictation and manual quick chips.
-* **Files:**
-  - `shared/src/commonMain/kotlin/feature/dashboard/ui/DashboardScreen.kt`
-  - `shared/src/commonMain/kotlin/feature/dashboard/ui/VoiceRecordButton.kt`
-  - `shared/src/commonMain/kotlin/feature/dashboard/ui/BudgetRadarCard.kt`
-  - `shared/src/commonMain/kotlin/feature/dashboard/ui/ExpenseReviewSheet.kt`
-  - `shared/src/commonMain/kotlin/feature/dashboard/ui/PoliteFallbackSheet.kt`
-* **Verification:**
-  ```powershell
-  ./gradlew :desktopApp:run --no-daemon
-  ```
+### المرحلة 3: الأولويات الإضافية وتجربة الاستخدام (P8, P9, P10, P5)
+- [x] **إعدادات ميزانية الأسبوع (P8):**
+  - إضافة `weeklyBudget` إلى `AppPreferences` بقيمة افتراضية (2500) مع إمكانية تعديلها وحفظها.
+- [x] **إدارة أذونات الميكروفون المتقدمة (P9):**
+  - بناء بطاقة شرح الحاجة للميكروفون عند الضغط عليه، وتوفير زر لفتح إعدادات النظام `ACTION_APPLICATION_DETAILS_SETTINGS` عند الرفض الدائم.
+- [x] **تعديل المصروف وتصدير البيانات (P10):**
+  - إضافة دالة `updateExpense(item)` في `ExpenseRepository` وواجهة التعديل في `ExpenseReviewSheet`.
+  - إضافة دالة لتصدير المصروفات بصيغة CSV وJSON محلياً عبر المشاركة المحلية للنظام.
+- [x] **نافذة نماذج Whisper الحقيقية (P5):**
+  - ربط `LocalWhisperSettingsDialog` بقائمة `getInstalledModels()` لعرض النماذج الموجودة فعلياً على القرص وحجمها.
+- [x] **شاشات Splash و Onboarding وهوامش الجوال UnSlop:**
+  - بناء شاشة Splash تفاعلية بنبضات صوتية ومساواة موجية واختفاء سلس.
+  - بناء شاشات Onboarding ثلاثية تفاعلية بـ Pager ومؤشرات حركية.
+  - حماية حواف الجوال (StatusBars و NavigationBars و Safe Insets) ومنع قص الثقوب العلوية.
 
-### Milestone 8: Android Hardware Integration & Audio Defense
-* **Lead Agent:** `@security-perf` & `@kmp-engineer`
-* **Tasks:**
-  - Implement Android `SpeechRecognizer` + `MediaRecorder` dual fallback.
-  - Implement runtime permission checks for `RECORD_AUDIO`.
-  - Ensure immediate release of microphone hardware in `onCleared()`.
-* **Files:**
-  - `androidApp/src/main/AndroidManifest.xml`
-  - `androidApp/src/main/kotlin/org/mohtech/app/MainActivity.kt`
-  - `shared/src/androidMain/kotlin/ai/audio/AndroidAudioRecorder.kt`
-* **Verification:**
-  ```powershell
-  ./gradlew :androidApp:assembleDebug
-  ```
+---
 
-### Milestone 9: Audit, Benchmarks & Spec-Kit Review
-* **Lead Agent:** `@security-perf` & `@apex-orchestrator`
-* **Tasks:**
-  - Contrast and touch target audit ($\ge 48\text{dp}$, WCAG AAA).
-  - Verify zero memory leaks on microphone release.
-  - Merge branch into `master` via pull request protocol.
-  - Generate final audit report.
-
+### المرحلة 4: التنقيح، والتدقيق، والتوثيق (Refactor & Review)
+- [x] **تشغيل حزمة الاختبارات الشاملة:**
+  - تنفيذ `.\gradlew.bat :shared:jvmTest` — 126 اختباراً ناجحاً بنسبة 100% (0 فشل).
+- [x] **بناء حزمة أندرويد النهائية:**
+  - تنفيذ `.\gradlew.bat :androidApp:assembleDebug` — بناء نظيف ناجح 100%.
+- [x] **فحص التطهير التام بالأوامر (Sanitization Grep):**
+  - فحص خلو الكود والمانيفست من `INTERNET` و `android.speech`.
+- [x] **تحديث وثائق المشروع (README.md و review.md) (P11):**
+  - توثيق مصفوفة العيوب P1-P11 كاملة في `review.md`.

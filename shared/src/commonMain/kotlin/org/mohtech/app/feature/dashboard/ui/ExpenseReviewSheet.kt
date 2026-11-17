@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,6 +23,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ripple
@@ -35,6 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.mohtech.app.core.theme.RaqeemColors
@@ -53,6 +58,11 @@ fun ExpenseReviewSheet(
     val firstItem = batch.items.firstOrNull() ?: return
 
     var selectedCategory by remember { mutableStateOf(firstItem.category) }
+    var isEditing by remember { mutableStateOf(false) }
+    var itemTitle by remember { mutableStateOf(firstItem.title) }
+    var itemAmountStr by remember {
+        mutableStateOf(if (firstItem.amount % 1.0 == 0.0) "${firstItem.amount.toInt()}" else "${firstItem.amount}")
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -72,6 +82,7 @@ fun ExpenseReviewSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
         ) {
@@ -127,7 +138,7 @@ fun ExpenseReviewSheet(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Extracted Details Hero Card
+            // Extracted Details Hero Card / Edit Card
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -136,50 +147,128 @@ fun ExpenseReviewSheet(
                     .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
                     .padding(18.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "المشتريات",
-                            color = RaqeemColors.TextTertiary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Normal
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = firstItem.title,
-                            color = RaqeemColors.TextPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
+                if (!isEditing) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "المشتريات",
+                                    color = RaqeemColors.TextTertiary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Normal
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = itemTitle,
+                                    color = RaqeemColors.TextPrimary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
 
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            text = "المبلغ المحسوب",
-                            color = RaqeemColors.TextTertiary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Normal
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.Bottom) {
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "المبلغ المحسوب",
+                                    color = RaqeemColors.TextTertiary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Normal
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text(
+                                        text = itemAmountStr,
+                                        color = RaqeemColors.EmeraldGreen,
+                                        fontSize = 24.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = firstItem.currency,
+                                        color = RaqeemColors.EmeraldGreen,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
                             Text(
-                                text = if (firstItem.amount % 1.0 == 0.0) "${firstItem.amount.toInt()}" else "${firstItem.amount}",
-                                color = RaqeemColors.EmeraldGreen,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = firstItem.currency,
-                                color = RaqeemColors.EmeraldGreen,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
+                                text = "✎ تعديل الاسم أو المبلغ",
+                                color = RaqeemColors.ElectricCyan,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .clickable { isEditing = true }
+                                    .padding(vertical = 4.dp, horizontal = 4.dp)
                             )
                         }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "تعديل تفاصيل المصروف",
+                                color = RaqeemColors.TextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "حفظ التغييرات ✓",
+                                color = RaqeemColors.EmeraldGreen,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clickable { isEditing = false }
+                                    .padding(4.dp)
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = itemTitle,
+                            onValueChange = { itemTitle = it },
+                            label = { Text("اسم البند / المشتريات", fontSize = 12.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = RaqeemColors.EmeraldGreen,
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                                focusedTextColor = RaqeemColors.TextPrimary,
+                                unfocusedTextColor = RaqeemColors.TextPrimary
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = itemAmountStr,
+                            onValueChange = { itemAmountStr = it },
+                            label = { Text("المبلغ (${firstItem.currency})", fontSize = 12.sp) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = RaqeemColors.EmeraldGreen,
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                                focusedTextColor = RaqeemColors.TextPrimary,
+                                unfocusedTextColor = RaqeemColors.TextPrimary
+                            )
+                        )
                     }
                 }
             }
@@ -264,8 +353,16 @@ fun ExpenseReviewSheet(
             // Confirm Button (Clean, authoritative, quiet)
             Button(
                 onClick = {
-                    val updatedItems = batch.items.map { it.copy(category = selectedCategory) }
-                    onConfirm(batch.copy(items = updatedItems))
+                    val finalAmount = itemAmountStr.toDoubleOrNull() ?: firstItem.amount
+                    val finalTitle = itemTitle.ifBlank { firstItem.title }
+                    val updatedItems = batch.items.map {
+                        it.copy(
+                            title = finalTitle,
+                            amount = finalAmount,
+                            category = selectedCategory
+                        )
+                    }
+                    onConfirm(batch.copy(items = updatedItems, totalBatchAmount = updatedItems.sumOf { it.amount }))
                 },
                 modifier = Modifier
                     .fillMaxWidth()

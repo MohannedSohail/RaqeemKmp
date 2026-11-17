@@ -21,3 +21,10 @@ node_modules/
 .gemini
 .agent/
 
+# AI & Whisper Binary Models (Zero Git Checkin)
+*.bin
+*.ggml
+*.onnx
+models/
+
+

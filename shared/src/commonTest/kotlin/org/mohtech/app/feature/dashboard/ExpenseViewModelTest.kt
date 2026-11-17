@@ -3,13 +3,18 @@ package org.mohtech.app.feature.dashboard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.mohtech.app.ai.audio.VoiceEngine
 import org.mohtech.app.ai.nlp.LocalDialectExpenseParser
+import org.mohtech.app.ai.whisper.FakeAudioRecorder
+import org.mohtech.app.ai.whisper.FakeTranscriber
+import org.mohtech.app.ai.whisper.SpeechError
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
 import org.mohtech.app.data.model.ProofType
@@ -51,11 +56,14 @@ class FakePlatformExpenseStorage : PlatformExpenseStorage {
 class FakeAppPreferences : AppPreferences {
     private var onboardingDone = false
     private var currency = "₪"
+    private var weeklyBudget = 2500.0
 
     override fun isOnboardingCompleted(): Boolean = onboardingDone
     override fun setOnboardingCompleted(completed: Boolean) { onboardingDone = completed }
     override fun getPreferredCurrency(): String = currency
     override fun setPreferredCurrency(currency: String) { this.currency = currency }
+    override fun getWeeklyBudget(): Double = weeklyBudget
+    override fun setWeeklyBudget(budget: Double) { weeklyBudget = budget }
 }
 
 class FakeVoiceEngine(
@@ -456,5 +464,268 @@ class ExpenseViewModelTest {
         advanceUntilIdle()
 
         assertNull(viewModel.uiState.value.reviewSheetPendingBatch)
+    }
+
+    // =========================================================================
+    // Phase 1 Red Phase Tests: Whisper On-Device Engine Integration & Rationale
+    // =========================================================================
+
+    @Test
+    fun testInitialDailyTotalIsZero() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        val state = viewModel.uiState.value
+        assertEquals(0.0, state.dailyTotal)
+        assertEquals(0.0, state.todayTotal)
+    }
+
+    @Test
+    fun testWhisperSuccessfulTranscriptionTriggersReviewState() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber(transcribeResultText = "بنزين ب 50 شيكل")
+        val fakeRecorder = FakeAudioRecorder()
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.StopRecording)
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        val batch = state.reviewSheetPendingBatch
+        assertNotNull(batch, "Expected ExpenseReviewSheet pending batch to be triggered upon successful transcription")
+        assertEquals(1, batch.items.size)
+        assertEquals(50.0, batch.items.first().amount)
+        assertEquals(ExpenseCategory.TRANSPORT, batch.items.first().category)
+        assertEquals(1, fakeRecorder.startRecordingCount, "startRecording must be invoked on RawAudioRecorder")
+        assertEquals(1, fakeRecorder.stopRecordingCount, "stopRecording must be invoked on RawAudioRecorder")
+        assertEquals(1, fakeTranscriber.transcribeCount, "transcribe must be invoked on LocalSpeechTranscriber")
+        assertEquals("ar", fakeTranscriber.lastConfig?.language, "Transcription must target Arabic language")
+    }
+
+    @Test
+    fun testWhisperErrorModelMissingShowsFallback() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber(
+            shouldFailWith = SpeechError.ModelMissing,
+            isModelReadyState = false
+        )
+        val fakeRecorder = FakeAudioRecorder()
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        assertFalse(state.isRecording)
+        assertTrue(state.showFallbackManualSheet, "Expected manual text fallback sheet to open on ModelMissing")
+    }
+
+    @Test
+    fun testWhisperErrorEmptyResultShowsMessage() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber(shouldFailWith = SpeechError.EmptyResult)
+        val fakeRecorder = FakeAudioRecorder()
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        val collectedEffects = mutableListOf<ExpenseEffect>()
+        val effectsJob = launch(UnconfinedTestDispatcher(testScheduler)) {
+            whisperVm.effects.collect { collectedEffects.add(it) }
+        }
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.StopRecording)
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        assertFalse(state.isRecording)
+        assertNull(state.reviewSheetPendingBatch)
+        val hasMessage = state.userErrorMessage != null ||
+            collectedEffects.any { it is ExpenseEffect.ShowToast }
+        assertTrue(hasMessage, "Expected toast or userErrorMessage to be shown when EmptyResult occurs")
+        effectsJob.cancel()
+    }
+
+    @Test
+    fun testWhisperErrorAudioCaptureShowsErrorMessage() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber()
+        val fakeRecorder = FakeAudioRecorder(errorToEmitOnStart = SpeechError.AudioCapture)
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        val collectedEffects = mutableListOf<ExpenseEffect>()
+        val effectsJob = launch(UnconfinedTestDispatcher(testScheduler)) {
+            whisperVm.effects.collect { collectedEffects.add(it) }
+        }
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        assertFalse(state.isRecording)
+        val hasErrorFeedback = state.userErrorMessage != null ||
+            state.showFallbackManualSheet ||
+            collectedEffects.any { it is ExpenseEffect.ShowToast }
+        assertTrue(hasErrorFeedback, "Expected user error message, toast, or fallback sheet on AudioCapture error")
+        effectsJob.cancel()
+    }
+
+    @Test
+    fun testWhisperErrorPermissionDeniedShowsRationaleDialog() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber()
+        val fakeRecorder = FakeAudioRecorder(errorToEmitOnStart = SpeechError.PermissionDenied)
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        assertFalse(state.isRecording)
+        assertTrue(
+            state.showPermissionRationaleDialog || state.showPermissionRationaleSheet,
+            "Expected microphone permission rationale sheet/dialog to be displayed"
+        )
+    }
+
+    @Test
+    fun testWhisperTranscriberAndRecorderReleasedWhenViewModelCleared() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber()
+        val fakeRecorder = FakeAudioRecorder()
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        assertEquals(0, fakeTranscriber.releaseCount)
+        assertEquals(0, fakeRecorder.releaseCount)
+
+        whisperVm.onCleared()
+
+        assertEquals(1, fakeTranscriber.releaseCount)
+        assertEquals(1, fakeRecorder.releaseCount)
+    }
+
+    @Test
+    fun testWhisperRecordingAmplitudeUpdatesState() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber()
+        val fakeRecorder = FakeAudioRecorder()
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        fakeRecorder.emitAmplitude(0.72f)
+        assertEquals(0.72f, whisperVm.uiState.value.recordingAmplitude, "Audio recorder amplitude must propagate to ExpenseUiState")
+
+        // Amplitude clamping boundaries
+        fakeRecorder.emitAmplitude(1.5f)
+        assertEquals(1.0f, whisperVm.uiState.value.recordingAmplitude, "Amplitude above 1.0f must be clamped to 1.0f")
+
+        fakeRecorder.emitAmplitude(-0.5f)
+        assertEquals(0.0f, whisperVm.uiState.value.recordingAmplitude, "Amplitude below 0.0f must be clamped to 0.0f")
+    }
+
+    @Test
+    fun testWhisperStopRecordingNullPcmShowsErrorFeedback() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber()
+        val fakeRecorder = FakeAudioRecorder(recordedPcm = null)
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        val collectedEffects = mutableListOf<ExpenseEffect>()
+        val effectsJob = launch(UnconfinedTestDispatcher(testScheduler)) {
+            whisperVm.effects.collect { collectedEffects.add(it) }
+        }
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.StopRecording)
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        assertFalse(state.isRecording)
+        assertNull(state.reviewSheetPendingBatch)
+        val hasFeedback = state.userErrorMessage != null ||
+            collectedEffects.any { it is ExpenseEffect.ShowToast }
+        assertTrue(hasFeedback, "Expected user error feedback when recorded PCM is null")
+        effectsJob.cancel()
+    }
+
+    @Test
+    fun testDismissPermissionRationaleDialog() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber()
+        val fakeRecorder = FakeAudioRecorder(errorToEmitOnStart = SpeechError.PermissionDenied)
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        val stateBeforeDismiss = whisperVm.uiState.value
+        assertTrue(
+            stateBeforeDismiss.showPermissionRationaleDialog || stateBeforeDismiss.showPermissionRationaleSheet,
+            "Permission rationale dialog/sheet must be visible following mic permission denial"
+        )
+
+        whisperVm.handleIntent(ExpenseIntent.DismissPermissionRationale)
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        assertFalse(state.showPermissionRationaleDialog, "showPermissionRationaleDialog must be dismissed")
+        assertFalse(state.showPermissionRationaleSheet, "showPermissionRationaleSheet must be dismissed")
     }
 }

@@ -20,9 +20,13 @@ data class ExpenseUiState(
     val reviewSheetPendingBatch: ExpenseBatch? = null,
     val isHardwareSpeechAvailable: Boolean = true,
     val showFallbackManualSheet: Boolean = false,
+    val showPermissionRationaleDialog: Boolean = false,
+    val showPermissionRationaleSheet: Boolean = false,
     val isOnboardingDone: Boolean = false,
     val userErrorMessage: String? = null
-)
+) {
+    val dailyTotal: Double get() = todayTotal
+}
 
 sealed interface ExpenseIntent {
     data object LoadInitialData : ExpenseIntent
@@ -33,10 +37,12 @@ sealed interface ExpenseIntent {
     data class ParseBankSms(val smsBody: String) : ExpenseIntent
     data class ConfirmBatch(val batch: ExpenseBatch) : ExpenseIntent
     data class DeleteExpense(val expenseId: String) : ExpenseIntent
+    data class EditExpense(val item: ExpenseItem) : ExpenseIntent
     data class FilterByCategory(val category: ExpenseCategory?) : ExpenseIntent
     data object OpenManualSheet : ExpenseIntent
     data object DismissReviewSheet : ExpenseIntent
     data object DismissFallbackSheet : ExpenseIntent
+    data object DismissPermissionRationale : ExpenseIntent
     data object CompleteOnboarding : ExpenseIntent
 }
 

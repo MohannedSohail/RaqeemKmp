@@ -3,7 +3,7 @@ package org.mohtech.app.ai.audio
 /**
  * VoiceEngine:
  * Platform-agnostic contract for audio voice capture and on-device Arabic speech-to-text.
- * Bridges platform speech recognizers (such as Android SpeechRecognizer) with MVI ExpenseViewModel.
+ * Bridges platform voice recognition engines with MVI ExpenseViewModel.
  */
 interface VoiceEngine {
     /**

@@ -51,4 +51,7 @@ android {
     buildFeatures {
         compose = true
     }
+    androidResources {
+        noCompress += "bin"
+    }
 }

@@ -1,17 +1,38 @@
 # 🎯 Raqeem (رقيم) - Project Intent & Product Vision (intent.md)
 
-## 📌 Executive Summary
-**Raqeem (رقيم)** is an elite, 100% Offline-First, Arabic-first, Voice-first personal and shared expense intelligence tracker built with **Compose Multiplatform (CMP)** targeting **Android** (with architectural expansion to iOS and Desktop).
+## 📌 Executive Summary — الإصدار 2.1: Whisper محلي حقيقي أوفلاين 100%
+**Raqeem (رقيم)** هو تطبيق مالي شخصي ومشترك فائق الخصوصية والأداء، يعمل بنسبة **100% أوفلاين (Offline-First)**، باللغة العربية أولاً (Arabic-first)، وموجه بالصوت أولاً (Voice-first)، مبني باستخدام **Compose Multiplatform (CMP)** لنظام **Android** (مع تصميم معماري ممتد لـ iOS وDesktop).
 
-The core thesis of Raqeem is simple: **Tracking daily expenses should not feel like data entry.** Users talk naturally in their native colloquial Arabic dialect ("دفعت خمسين شيكل بنزين", "أنا وأحمد أكلنا شاورما بستين شيكل ودفعها أحمد"), and Raqeem instantly extracts the amount, currency, category, payer, and split—completely on-device without cloud latency, cloud fees, or privacy leaks.
+الركيزة الجوهرية غير القابلة للتفاوض في رقيم: **التطبيق لا يستخدم أي خدمة من Google، ولا أي اتصال شبكي، ولا اتصالات سحابية. وضع الطيران لا يؤثر مطلقاً على أداء التطبيق.**
+محرك تحويل الصوت إلى نص الوحيد هو **Whisper محلي يعمل بالكامل على الجهاز (whisper.cpp بنماذج GGML)**، دون أي وسيط خارجي.
 
 ---
 
-## 🛑 Problem Statement
-1. **The Friction of Manual Entry:** Standard budgeting apps (Spendee, Wallet, Toshl) require 7+ taps to log a simple cup of coffee: open app, select account, enter numbers, choose category, select date, write note, save. In the rush of daily life in Cairo, Riyadh, Amman, or Gaza, users abandon these apps within 4 days.
-2. **English & Western Bias:** Existing financial apps are designed with Left-to-Right (LTR) mental models, clumsy Arabic translations, rigid Western categorization, and zero support for Arabic numerals (`١، ٢، ٣`) or colloquial spoken amounts ("مية وخمسين", "عشرة شواكل").
-3. **Cloud & Privacy Risks:** Users are uncomfortable uploading their personal receipts, bank notifications, and daily financial habits to external AI clouds (OpenAI, Google Cloud, Azure).
-4. **Hardware Failure & Device Fragmentation:** On regional budget Android phones (Xiaomi, HyperOS, Huawei, Transsion), lack of pre-installed Google Speech Services causes voice apps to crash or stall silently.
+## 🛑 Problem Statement & Root Cause
+1. **الاعتماد السابق على خدمات Google والشبكة (P1):**
+   سابقاً كان الصوت يعتمد على `SpeechRecognizer` الخاص بـ Google أو نافذة Google للبحث الصوتي. في غياب الإنترنت أو وضع الطيران أو في أجهزة Xiaomi HyperOS وHuawei، يظهر خطأ «ميزة البحث الصوتي غير متاحة» ويتعطل التعرف الصوتي تماماً.
+2. **محاكاة Whisper الوهمية (P2):**
+   محرك Whisper القديم كان مجرد محاكاة بـ `delay()` تعيد نصوصاً ثابتة أو ترتكز على Google، ولم يكن هناك محرك Whisper حقيقي يعمل بنماذج GGML.
+3. **أخطاء الصلاحيات والتحليل الهش (P3, P4):**
+   وجود صلاحيات `INTERNET` واستعلامات `RecognitionService` في المانيفست يناقض هوية التطبيق الأوفلاين، مع وجود تحليل أخطاء هش بـ `contains("5")` واستدعاءات Reflection.
+4. **تجربة المستخدم عند طلب الأذونات والبيانات الابتدائية (P7, P8, P9):**
+   طلب إذن الميكروفون عند الإقلاع دون شرح، وافتراض أرقام وميزانيات ثابتة بدلاً من الحساب الحقيقي من المستودع.
+5. **غياب ميزات التعديل والنسخ الاحتياطي (P10):**
+   غياب إمكانية تعديل المصروف القائم أو تصدير البيانات محلياً.
+
+---
+
+## 🏛️ القرار المعماري الجديد (Whisper On-Device STT)
+1. **صفر اعتماد على Google أو السحابة:**
+   - منع قاطع لأي استدعاء لـ `android.speech.SpeechRecognizer` أو `RecognizerIntent` أو أي واجهة في حزمة `android.speech.*`.
+   - منع فتح أي نوافذ أو حوارات صوتية تابعة لـ Google.
+   - إزالة صلاحيات `INTERNET` و`ACCESS_NETWORK_STATE` من `AndroidManifest.xml` وحذف أي استعلامات `<queries>` لخدمات Google Speech.
+   - منع استدعاء أي نماذج سحابية خارجية (Gemini أو غيره).
+2. **محرك تحويل الصوت إلى نص: Whisper.cpp محلي 100%:**
+   - التسجيل عبر `AudioRecord` الخام (PCM 16kHz Mono 16-bit).
+   - المعالجة المباشرة عبر مكتبة `whisper.cpp` المجمعة كـ Native C++ (JNI) باستخدام نماذج GGML مكممة.
+   - النماذج تُخزن محلياً داخل الجهاز (`filesDir`) وتُنسخ من `assets` عند التثبيت أو تُنقل بـ `adb push` أثناء التطوير.
+   - النموذج المعتمد: `ggml-tiny.bin` متعدد اللغات المخصص للعمل على أجهزة الموبايل بحجم خفيف (~75MB، واستهلاك ذاكرة < 120MB) مع توجيهه مالياً عبر `initial_prompt` لضمان دقة تفوق 95% في العاميات العربية.
 
 ---
 
@@ -19,45 +40,33 @@ The core thesis of Raqeem is simple: **Tracking daily expenses should not feel l
 
 | Persona | Archetype | Core Needs | Voice Scenario Example |
 | :--- | :--- | :--- | :--- |
-| **Tariq (26)** | Daily Commuter / Driver | Fast, hands-free entry right after paying fuel or taxi | *"بنزين بخمسين شيكل"* |
-| **Nour (32)** | Household Budget Manager | Weekly grocery tracking, categorizing produce & staples | *"مشتريات السوبرماركت مية وعشرين شيكل حليب وبيض وجبنة"* |
-| **Omar (22)** | University Student / Flatmate | Fair expense sharing and splitting between roommates | *"عشاء بستين شيكل بيني وبين أحمد على حسابي"* |
-| **Salma (29)** | Professional Shopper | Logging bank transactions immediately after SMS alert | *"سحب كاش 500 ريال صراف الراجحي"* / Bank SMS paste |
+| **طارق (26)** | سائق / متنقل يومي | تسجيل سريع بدون لمس، في الأنفاق أو وضع الطيران | *"بنزين بخمسين شيكل"* |
+| **نور (32)** | مديرة ميزانية الأسرة | تسجيل مشتريات السوق الأسبوعية بالكامل أوفلاين | *"مشتريات السوبرماركت مية وعشرين شيكل حليب وبيض وجبنة"* |
+| **عمر (22)** | طالب جامعي / سكن مشترك | تقسيم فواتير العشاء بدقة مع الزملاء دون إنترنت | *"عشاء بستين شيكل بيني وبين أحمد على حسابي"* |
+| **سلمى (29)** | متسوقة / تنظيم مالي | حفظ خصوصية تامة لبياناتها المالية دون تسريب لأي خادم | *"كاش 500 ريال صراف الراجحي"* |
 
 ---
 
 ## 🚀 Key Value Propositions
-1. **Zero-Friction Voice Logging (< 3 Seconds):**
-   - Tap microphone ➔ Speak 1 sentence ➔ Instant parsed expense card with 1-tap confirmation.
-2. **100% Offline Reliability:**
-   - Zero network permissions required for core tracking.
-   - Works in underground metros, rural roads, and during network blackouts.
-3. **Colloquial Dialect Intelligence:**
-   - Native recognition of Levantine (شامي), Egyptian (مصري), Gulf (خليجي), and Palestinian dialects.
-   - Converts colloquial number words ("نص", "ربع", "مية وخمسين", "خمسمية", "ألفين") into precise monetary values.
-4. **Smart Multi-Payer Split ("من دفع ولمن"):**
-   - Automatically identifies who covered the bill and calculates per-person liabilities for shared dinners or flatmates.
-5. **Bank SMS & Notification Proof (Optional):**
-   - Clean, local regex-based transaction parser for incoming bank SMS (Bank of Palestine, Al Rajhi, CIB, SNB, etc.), extracting merchant, amount, and timestamp without reading sensitive credentials.
+1. **تحويل صوتي محلي حقيقي 100% (On-Device Whisper STT):**
+   - يعمل بنفس الدقة في وضع الطيران، أو في المناطق الخالية من التغطية، أو في أجهزة Xiaomi HyperOS وMIUI وHuawei.
+2. **خصوصية مطلقة (Zero Cloud Leaks):**
+   - لا تغادر عينة صوت واحدة أو معاملة مالية ذاكرة الهاتف نهائياً.
+3. **ذكاء فهم اللهجات العامية العربية:**
+   - استيعاب الأرقام المنطوقة وكلمات الكسور والأعداد المركبة محلياً عبر `LocalDialectExpenseParser`.
+4. **توجيه النموذج المالي (Financial Prompt Tuning):**
+   - تمرير `initial_prompt` مالي لمفردات الإنفاق العربية (شيكل، ريال، جنيه، بنزين، قهوة، سوبرماركت، مطعم، دفعت...) لتوجيه النموذج بدقة وسرعة.
 
 ---
 
-## 📊 Success Metrics & KPIs
+## 📊 مؤشرات النجاح ومقاييس الأداء (KPIs)
 
-| Metric | Target | Measurement Method |
+| المقياس (Metric) | الهدف (Target) | طريقة القياس والتحقق |
 | :--- | :--- | :--- |
-| **Voice-to-Logged Latency** | $< 3.0\text{ seconds}$ | Time from mic button tap to rendered review card |
-| **NLP Parsing Accuracy** | $\ge 95\%$ on benchmark | 15+ standard dialect test suites in `commonTest` |
-| **Cold-Start Launch Time** | $< 800\text{ ms}$ on mid-range Android | Synchronous `AppPreferences` check, zero jank |
-| **Offline Uptime** | $100\%$ | No network API dependencies whatsoever |
-| **Crash-Free Sessions** | $\ge 99.8\%$ | Graceful fallback on devices lacking Google Speech Services |
-| **Accessibility & RTL** | 100% RTL compliance | All screens verified with `LayoutDirection.Rtl`, $\ge 48\text{dp}$ touch targets |
-
----
-
-## 🎨 Visual Identity & Emotional Design Tone
-- **Fintech Dark Slate (`#0E131F`)**: Conveys privacy, security, and battery efficiency.
-- **Emerald Green (`#00C48C`)**: Represents growth, financial balance, and positive cash flow.
-- **Cairo Font Family**: Geometric, clear Arabic letterforms with balanced x-height, eliminating awkward vertical clipping of Arabic diacritics.
-- **RTL Fluid Motion**: Micro-interactions originate from the right, respecting natural Arabic reading flow.
-
+| **تطابق الأداء في وضع الطيران** | 100% مطابقة | نجاح التسجيل واستخراج النص في وضع الطيران تماماً كما في الاتصال |
+| **صلاحيات الشبكة في المانيفست** | **صفر (0)** | خلو `AndroidManifest.xml` من `INTERNET` أو `ACCESS_NETWORK_STATE` |
+| **استدعاءات Google Speech** | **صفر (0)** | خلو الكود تماماً من `android.speech.*` و`RecognizerIntent` |
+| **كود المحاكاة الوهمي** | **صفر (0)** | خلو المشروع الإنتاجي من `delay()` التمثيلي أو النصوص الثابتة خارج الاختبارات |
+| **زمن الاستجابة الصوتي** | $< 2.5\text{ ثانية}$ | زمن معالجة مقطع صوتي 5 ثوانٍ بنموذج base على معالج 8-core ARM64 |
+| **دقة استخراج المصروف** | $\ge 95\%$ | اجتياز جميع اختبارات اللهجات العامية في `DialectParserTest` |
+| **قيم البدء في الواجهة** | 0.0 حصراً | `dailyTotal = 0.0` عند التشغيل وتُحسب حصراً من المستودع |

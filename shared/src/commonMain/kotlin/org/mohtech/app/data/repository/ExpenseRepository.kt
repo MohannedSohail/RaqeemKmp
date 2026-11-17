@@ -3,6 +3,8 @@ package org.mohtech.app.data.repository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.datetime.TimeZone
@@ -23,6 +25,9 @@ interface ExpenseRepository {
     suspend fun getExpensesByCategory(category: ExpenseCategory): List<ExpenseItem>
     suspend fun getTodayTotal(): Double
     suspend fun getWeeklyTotal(): Double
+    suspend fun updateExpense(item: ExpenseItem)
+    fun exportCsv(expenses: List<ExpenseItem>): String
+    fun exportJson(expenses: List<ExpenseItem>): String
 }
 
 class LocalExpenseRepository(
@@ -89,5 +94,44 @@ class LocalExpenseRepository(
         return _expensesFlow.value.filter { item ->
             item.timestamp in sevenDaysAgoMillis..nowMillis
         }.sumOf { it.amount }
+    }
+
+    override suspend fun updateExpense(item: ExpenseItem) {
+        storage.saveExpense(item)
+        val current = _expensesFlow.value
+        _expensesFlow.value = current.map { if (it.id == item.id) item else it }
+    }
+
+    override fun exportCsv(expenses: List<ExpenseItem>): String {
+        val header = "id,title,amount,currency,category,timestamp"
+        if (expenses.isEmpty()) {
+            return header
+        }
+        val rows = expenses.map { item ->
+            val id = escapeCsvField(item.id)
+            val title = escapeCsvField(item.title)
+            val amount = item.amount.toString()
+            val currency = escapeCsvField(item.currency)
+            val category = item.category.name
+            val timestamp = item.timestamp.toString()
+            "$id,$title,$amount,$currency,$category,$timestamp"
+        }
+        return (listOf(header) + rows).joinToString("\n")
+    }
+
+    override fun exportJson(expenses: List<ExpenseItem>): String {
+        return if (expenses.isEmpty()) {
+            "[]"
+        } else {
+            Json.encodeToString(expenses)
+        }
+    }
+
+    private fun escapeCsvField(value: String): String {
+        return if (value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r')) {
+            "\"" + value.replace("\"", "\"\"") + "\""
+        } else {
+            value
+        }
     }
 }

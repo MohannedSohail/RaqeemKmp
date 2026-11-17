@@ -21,6 +21,17 @@ class IosAppPreferences : AppPreferences {
     override fun setPreferredCurrency(currency: String) {
         userDefaults.setObject(currency, forKey = "preferred_currency")
     }
+
+    override fun getWeeklyBudget(): Double {
+        if (userDefaults.objectForKey("weekly_budget") == null) {
+            return 2500.0
+        }
+        return userDefaults.doubleForKey("weekly_budget")
+    }
+
+    override fun setWeeklyBudget(budget: Double) {
+        userDefaults.setDouble(budget, forKey = "weekly_budget")
+    }
 }
 
 actual fun createAppPreferences(context: Any?): AppPreferences = IosAppPreferences()
