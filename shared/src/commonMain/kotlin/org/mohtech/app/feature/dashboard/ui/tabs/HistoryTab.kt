@@ -65,9 +65,13 @@ fun HistoryTab(
 ) {
     val timeZone = TimeZone.currentSystemDefault()
 
+    val distinctFilteredExpenses = remember(state.filteredExpenses) {
+        state.filteredExpenses.distinctBy { it.id }
+    }
+
     // Group expenses by formatted date
-    val groupedExpenses = remember(state.filteredExpenses) {
-        state.filteredExpenses.groupBy { item ->
+    val groupedExpenses = remember(distinctFilteredExpenses) {
+        distinctFilteredExpenses.groupBy { item ->
             val date = Instant.fromEpochMilliseconds(item.timestamp).toLocalDateTime(timeZone).date
             "${date.year}-${date.monthNumber.toString().padStart(2, '0')}-${date.dayOfMonth.toString().padStart(2, '0')}"
         }
@@ -143,7 +147,7 @@ fun HistoryTab(
                         }
                     }
 
-                    items(ExpenseCategory.entries) { cat ->
+                    items(ExpenseCategory.entries, key = { it.name }) { cat ->
                         val isSelected = state.selectedCategoryFilter == cat
                         val catClr = when (cat) {
                             ExpenseCategory.GROCERIES -> RaqeemColors.CatGroceries
@@ -183,7 +187,7 @@ fun HistoryTab(
             }
         }
 
-        if (state.filteredExpenses.isEmpty()) {
+        if (distinctFilteredExpenses.isEmpty()) {
             item {
                 Box(
                     modifier = Modifier
@@ -217,7 +221,7 @@ fun HistoryTab(
                 }
 
                 items(
-                    items = itemsForDate,
+                    items = itemsForDate.distinctBy { it.id },
                     key = { it.id }
                 ) { item ->
                     ExpenseItemCard(

@@ -98,7 +98,7 @@ fun ReportsTab(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(ReportPeriod.entries) { period ->
+                    items(ReportPeriod.entries, key = { it.name }) { period ->
                         val isSelected = state.selectedReportPeriod == period
                         Box(
                             modifier = Modifier

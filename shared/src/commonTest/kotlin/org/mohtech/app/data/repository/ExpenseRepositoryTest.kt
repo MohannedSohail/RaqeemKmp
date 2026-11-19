@@ -22,7 +22,9 @@ class FakeRepoStorage : PlatformExpenseStorage {
     }
 
     override suspend fun saveAll(items: List<ExpenseItem>) {
-        list.addAll(items)
+        val unique = items.distinctBy { it.id }
+        list.removeAll { old -> unique.any { it.id == old.id } }
+        list.addAll(unique)
     }
 
     override suspend fun getAllExpenses(): List<ExpenseItem> = list.toList()
@@ -231,5 +233,65 @@ class ExpenseRepositoryTest {
         // Boundary edge case: zero budget
         preferences.setWeeklyBudget(0.0)
         assertEquals(0.0, preferences.getWeeklyBudget())
+    }
+
+    @Test
+    fun testSaveBatchDeduplicatesExistingItemsById() = runTest {
+        repository.initialize()
+        val item1 = ExpenseItem(
+            id = "exp_1795081036881_708",
+            title = "قهوة",
+            amount = 15.0,
+            currency = "₪",
+            category = ExpenseCategory.DINING,
+            timestamp = 1000L
+        )
+        repository.saveExpense(item1)
+        assertEquals(1, repository.getAllExpenses().size)
+
+        // Save batch containing identical id (e.g. edit scenario or re-save)
+        val updatedItem1 = item1.copy(title = "قهوة مع حليب", amount = 18.0)
+        val batch = org.mohtech.app.data.model.ExpenseBatch(
+            batchId = "batch_1",
+            items = listOf(updatedItem1, updatedItem1), // duplicate in batch itself too
+            totalBatchAmount = 36.0,
+            createdAt = 1000L
+        )
+        repository.saveBatch(batch)
+
+        val expenses = repository.getAllExpenses()
+        assertEquals(1, expenses.size, "Batch must deduplicate by ID and update existing item instead of appending duplicates")
+        assertEquals("قهوة مع حليب", expenses.first().title)
+        assertEquals(18.0, expenses.first().amount)
+
+        val flowEmission = repository.expensesFlow.first()
+        assertEquals(1, flowEmission.size)
+        assertEquals("exp_1795081036881_708", flowEmission.first().id)
+    }
+
+    @Test
+    fun testInitializeDeduplicatesCorruptedStorageData() = runTest {
+        // Simulate corrupted storage holding duplicate IDs from previous crash
+        val item = ExpenseItem(
+            id = "exp_1795081036881_708",
+            title = "بنزين",
+            amount = 50.0,
+            currency = "₪",
+            category = ExpenseCategory.TRANSPORT,
+            timestamp = 2000L
+        )
+        storage.saveExpense(item)
+        // Directly add duplicate to storage to mimic old corrupted file
+        (storage as FakeRepoStorage).let {
+            it.saveExpense(item)
+        }
+
+        val testRepo = LocalExpenseRepository(storage, preferences)
+        testRepo.initialize()
+
+        val all = testRepo.getAllExpenses()
+        assertEquals(1, all.size, "Repository initialize must deduplicate any corrupted duplicates from storage")
+        val flowItems = testRepo.expensesFlow.first()
+        assertEquals(1, flowItems.size)
     }
 }

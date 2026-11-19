@@ -47,7 +47,9 @@ fun HomeTab(
     onChangeCategory: (ExpenseItem, ExpenseCategory) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val top5Expenses = state.recentExpenses.take(5)
+    val top5Expenses = remember(state.recentExpenses) {
+        state.recentExpenses.distinctBy { it.id }.take(5)
+    }
 
     LazyColumn(
         modifier = modifier

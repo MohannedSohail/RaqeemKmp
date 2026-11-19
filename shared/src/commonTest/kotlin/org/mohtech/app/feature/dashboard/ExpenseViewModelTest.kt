@@ -955,4 +955,79 @@ class ExpenseViewModelTest {
         advanceUntilIdle()
         assertNull(viewModel.uiState.value.exportSuccessPath)
     }
+
+    @Test
+    fun testEditExpenseAndConfirmBatchDoesNotDuplicateItemInState() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        val item = ExpenseItem(
+            id = "exp_1795081036881_708",
+            title = "قهوة",
+            amount = 12.0,
+            currency = "₪",
+            category = ExpenseCategory.DINING,
+            timestamp = 5000L
+        )
+        repository.saveExpense(item)
+        advanceUntilIdle()
+        assertEquals(1, viewModel.uiState.value.recentExpenses.size)
+
+        // Trigger edit on the item
+        viewModel.handleIntent(ExpenseIntent.EditExpense(item))
+        advanceUntilIdle()
+        val pendingBatch = viewModel.uiState.value.reviewSheetPendingBatch
+        assertNotNull(pendingBatch)
+        assertEquals("exp_1795081036881_708", pendingBatch.items.first().id)
+
+        // User edits title/amount and confirms batch
+        val modifiedBatch = pendingBatch.copy(
+            items = listOf(pendingBatch.items.first().copy(title = "قهوة تركي", amount = 14.0))
+        )
+        viewModel.handleIntent(ExpenseIntent.ConfirmBatch(modifiedBatch))
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(1, state.recentExpenses.size, "Editing and confirming batch must not create duplicate items with identical ID")
+        assertEquals(1, state.filteredExpenses.size)
+        assertEquals("exp_1795081036881_708", state.recentExpenses.first().id)
+        assertEquals("قهوة تركي", state.recentExpenses.first().title)
+        assertEquals(14.0, state.recentExpenses.first().amount)
+    }
+
+    @Test
+    fun testFilteredExpensesAndRecentExpensesStrictlyUniqueUnderSearchAndFilter() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        val item1 = ExpenseItem(
+            id = "exp_unique_1",
+            title = "بنزين للسيارة",
+            amount = 50.0,
+            currency = "₪",
+            category = ExpenseCategory.TRANSPORT,
+            timestamp = 1000L
+        )
+        val item2 = ExpenseItem(
+            id = "exp_unique_2",
+            title = "بنزين للمولد",
+            amount = 30.0,
+            currency = "₪",
+            category = ExpenseCategory.TRANSPORT,
+            timestamp = 2000L
+        )
+        repository.saveExpense(item1)
+        repository.saveExpense(item2)
+        advanceUntilIdle()
+
+        // Filter by TRANSPORT
+        viewModel.handleIntent(ExpenseIntent.FilterByCategory(ExpenseCategory.TRANSPORT))
+        advanceUntilIdle()
+        val filtered1 = viewModel.uiState.value.filteredExpenses
+        assertEquals(2, filtered1.size)
+        assertEquals(filtered1.size, filtered1.map { it.id }.toSet().size, "Filtered items must have unique IDs")
+
+        // Search for "بنزين"
+        viewModel.handleIntent(ExpenseIntent.SearchExpenses("بنزين"))
+        advanceUntilIdle()
+        val filtered2 = viewModel.uiState.value.filteredExpenses
+        assertEquals(2, filtered2.size)
+        assertEquals(filtered2.size, filtered2.map { it.id }.toSet().size, "Filtered items under search must have unique IDs")
+    }
 }

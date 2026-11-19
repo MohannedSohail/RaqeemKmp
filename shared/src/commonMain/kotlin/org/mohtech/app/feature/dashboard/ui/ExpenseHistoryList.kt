@@ -98,7 +98,7 @@ fun ExpenseHistorySection(
                     onClick = { onSelectCategory(null) }
                 )
             }
-            items(ExpenseCategory.entries.toTypedArray()) { category ->
+            items(ExpenseCategory.entries.toTypedArray(), key = { it.name }) { category ->
                 CategoryChip(
                     title = category.arabicTitle,
                     isSelected = selectedCategory == category,
@@ -115,7 +115,7 @@ fun ExpenseHistorySection(
             EmptyExpensesCard()
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                expenses.forEach { item ->
+                expenses.distinctBy { it.id }.forEach { item ->
                     key(item.id) {
                         val dismissState = rememberSwipeToDismissBoxState(
                             positionalThreshold = { totalDistance -> totalDistance * 0.40f },

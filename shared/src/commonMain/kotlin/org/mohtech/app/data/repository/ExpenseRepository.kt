@@ -39,40 +39,38 @@ class LocalExpenseRepository(
     override val expensesFlow: Flow<List<ExpenseItem>> = _expensesFlow.asStateFlow()
 
     override suspend fun initialize() {
-        val loaded = storage.getAllExpenses()
+        val loaded = storage.getAllExpenses().distinctBy { it.id }
         _expensesFlow.value = loaded.sortedByDescending { it.timestamp }
     }
 
     override suspend fun saveBatch(batch: ExpenseBatch) {
-        storage.saveAll(batch.items)
-        val current = _expensesFlow.value.toMutableList()
-        current.addAll(batch.items)
-        _expensesFlow.value = current.sortedByDescending { it.timestamp }
+        val uniqueItems = batch.items.distinctBy { it.id }
+        storage.saveAll(uniqueItems)
+        val current = _expensesFlow.value.filterNot { existing ->
+            uniqueItems.any { it.id == existing.id }
+        }.toMutableList()
+        current.addAll(uniqueItems)
+        _expensesFlow.value = current.distinctBy { it.id }.sortedByDescending { it.timestamp }
     }
 
     override suspend fun saveExpense(item: ExpenseItem) {
         storage.saveExpense(item)
-        val current = _expensesFlow.value.toMutableList()
-        val existingIndex = current.indexOfFirst { it.id == item.id }
-        if (existingIndex >= 0) {
-            current[existingIndex] = item
-        } else {
-            current.add(0, item)
-        }
-        _expensesFlow.value = current.sortedByDescending { it.timestamp }
+        val current = _expensesFlow.value.filter { it.id != item.id }.toMutableList()
+        current.add(0, item)
+        _expensesFlow.value = current.distinctBy { it.id }.sortedByDescending { it.timestamp }
     }
 
     override suspend fun deleteExpense(id: String) {
         storage.deleteExpense(id)
-        _expensesFlow.value = _expensesFlow.value.filter { it.id != id }
+        _expensesFlow.value = _expensesFlow.value.filter { it.id != id }.distinctBy { it.id }
     }
 
     override suspend fun getAllExpenses(): List<ExpenseItem> {
-        return _expensesFlow.value
+        return _expensesFlow.value.distinctBy { it.id }
     }
 
     override suspend fun getExpensesByCategory(category: ExpenseCategory): List<ExpenseItem> {
-        return _expensesFlow.value.filter { it.category == category }
+        return _expensesFlow.value.distinctBy { it.id }.filter { it.category == category }
     }
 
     override suspend fun getTodayTotal(): Double {
@@ -100,8 +98,9 @@ class LocalExpenseRepository(
 
     override suspend fun updateExpense(item: ExpenseItem) {
         storage.saveExpense(item)
-        val current = _expensesFlow.value
-        _expensesFlow.value = current.map { if (it.id == item.id) item else it }
+        val current = _expensesFlow.value.filter { it.id != item.id }.toMutableList()
+        current.add(0, item)
+        _expensesFlow.value = current.distinctBy { it.id }.sortedByDescending { it.timestamp }
     }
 
     override fun exportCsv(expenses: List<ExpenseItem>): String {

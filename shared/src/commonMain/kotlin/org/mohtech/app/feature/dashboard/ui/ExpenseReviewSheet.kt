@@ -332,7 +332,7 @@ fun ExpenseReviewSheet(
             )
             Spacer(modifier = Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(ExpenseCategory.entries.toTypedArray()) { cat ->
+                items(ExpenseCategory.entries.toTypedArray(), key = { it.name }) { cat ->
                     val isSelected = selectedCategory == cat
                     val catColor = Color(cat.colorHex)
                     Box(

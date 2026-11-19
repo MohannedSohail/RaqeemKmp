@@ -21,35 +21,31 @@ class JvmPlatformExpenseStorage : PlatformExpenseStorage {
 
     override suspend fun saveExpense(item: ExpenseItem) {
         synchronized(lock) {
-            val list = loadInternal().toMutableList()
-            val existingIndex = list.indexOfFirst { it.id == item.id }
-            if (existingIndex >= 0) {
-                list[existingIndex] = item
-            } else {
-                list.add(0, item)
-            }
-            saveInternal(list)
+            val list = loadInternal().filter { it.id != item.id }.toMutableList()
+            list.add(0, item)
+            saveInternal(list.distinctBy { it.id })
         }
     }
 
     override suspend fun saveAll(items: List<ExpenseItem>) {
         synchronized(lock) {
-            val list = loadInternal().toMutableList()
-            list.addAll(items)
-            saveInternal(list)
+            val uniqueNewItems = items.distinctBy { it.id }
+            val existing = loadInternal().filterNot { old -> uniqueNewItems.any { it.id == old.id } }.toMutableList()
+            existing.addAll(uniqueNewItems)
+            saveInternal(existing.distinctBy { it.id })
         }
     }
 
     override suspend fun getAllExpenses(): List<ExpenseItem> {
         synchronized(lock) {
-            return loadInternal()
+            return loadInternal().distinctBy { it.id }
         }
     }
 
     override suspend fun deleteExpense(id: String) {
         synchronized(lock) {
             val list = loadInternal().filter { it.id != id }
-            saveInternal(list)
+            saveInternal(list.distinctBy { it.id })
         }
     }
 
@@ -63,14 +59,19 @@ class JvmPlatformExpenseStorage : PlatformExpenseStorage {
         if (!storageFile.exists() || storageFile.length() == 0L) return emptyList()
         return try {
             val content = storageFile.readText()
-            json.decodeFromString<List<ExpenseItem>>(content)
+            val decoded = json.decodeFromString<List<ExpenseItem>>(content)
+            val distinct = decoded.distinctBy { it.id }
+            if (distinct.size < decoded.size) {
+                saveInternal(distinct)
+            }
+            distinct
         } catch (e: Exception) {
             emptyList()
         }
     }
 
     private fun saveInternal(items: List<ExpenseItem>) {
-        val serialized = json.encodeToString(items)
+        val serialized = json.encodeToString(items.distinctBy { it.id })
         storageFile.writeText(serialized)
     }
 }

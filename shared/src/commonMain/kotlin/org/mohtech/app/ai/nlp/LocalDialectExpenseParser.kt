@@ -1,5 +1,6 @@
 package org.mohtech.app.ai.nlp
 
+import kotlin.time.Clock
 import org.mohtech.app.data.model.BankSmsProof
 import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
@@ -56,8 +57,9 @@ class LocalDialectExpenseParser {
         // 6. Extract Clean Title
         val title = extractTitle(spokenText, category)
 
+        val ts = if (currentTimestamp > 0L) currentTimestamp else Clock.System.now().toEpochMilliseconds()
         val item = ExpenseItem(
-            id = "exp_${currentTimestamp}_${(100..999).random()}",
+            id = "exp_${ts}_${(100000..999999).random()}",
             title = title,
             amount = amount,
             currency = currency,

@@ -118,7 +118,8 @@ class ExpenseViewModel(
             _uiState.update { it.copy(isLoading = true) }
             repository.initialize()
 
-            repository.expensesFlow.collect { expenses ->
+            repository.expensesFlow.collect { rawExpenses ->
+                val expenses = rawExpenses.distinctBy { it.id }
                 val todayTotal = repository.getTodayTotal()
                 val weeklyTotal = repository.getWeeklyTotal()
                 val currentFilter = _uiState.value.selectedCategoryFilter
@@ -130,7 +131,7 @@ class ExpenseViewModel(
                         item.title.lowercase().contains(currentSearch) ||
                         item.payer.name.lowercase().contains(currentSearch)
                     matchCat && matchQuery
-                }
+                }.distinctBy { it.id }
 
                 val currentPeriod = _uiState.value.selectedReportPeriod
                 val report = ReportBuilder.buildReport(
@@ -469,8 +470,9 @@ class ExpenseViewModel(
         val proof = parser.parseBankSms(smsBody, now)
 
         if (proof != null) {
+            val suffix = (100000..999999).random()
             val item = ExpenseItem(
-                id = "exp_sms_$now",
+                id = "exp_sms_${now}_$suffix",
                 title = proof.merchant,
                 amount = proof.extractedAmount,
                 currency = proof.currency,
@@ -481,7 +483,7 @@ class ExpenseViewModel(
                 rawSpokenText = smsBody
             )
             val batch = ExpenseBatch(
-                batchId = "batch_sms_$now",
+                batchId = "batch_sms_${now}_$suffix",
                 items = listOf(item),
                 totalBatchAmount = item.amount,
                 createdAt = now
@@ -567,7 +569,7 @@ class ExpenseViewModel(
         viewModelScope.launch {
             val now = Clock.System.now().toEpochMilliseconds()
             val newItem = item.copy(
-                id = "exp_${now}_${(1000..9999).random()}",
+                id = "exp_${now}_${(100000..999999).random()}",
                 timestamp = now
             )
             repository.saveExpense(newItem)
@@ -660,13 +662,13 @@ class ExpenseViewModel(
     private fun filterByCategory(category: ExpenseCategory?) {
         _uiState.update { state ->
             val q = state.searchQuery.trim().lowercase()
-            val filtered = state.recentExpenses.filter { item ->
+            val filtered = state.recentExpenses.distinctBy { it.id }.filter { item ->
                 val matchCat = category == null || item.category == category
                 val matchQuery = q.isEmpty() ||
                     item.title.lowercase().contains(q) ||
                     item.payer.name.lowercase().contains(q)
                 matchCat && matchQuery
-            }
+            }.distinctBy { it.id }
             state.copy(
                 selectedCategoryFilter = category,
                 filteredExpenses = filtered
@@ -677,13 +679,13 @@ class ExpenseViewModel(
     private fun searchExpenses(query: String) {
         _uiState.update { state ->
             val q = query.trim().lowercase()
-            val filtered = state.recentExpenses.filter { item ->
+            val filtered = state.recentExpenses.distinctBy { it.id }.filter { item ->
                 val matchCat = state.selectedCategoryFilter == null || item.category == state.selectedCategoryFilter
                 val matchQuery = q.isEmpty() ||
                     item.title.lowercase().contains(q) ||
                     item.payer.name.lowercase().contains(q)
                 matchCat && matchQuery
-            }
+            }.distinctBy { it.id }
             state.copy(
                 searchQuery = query,
                 filteredExpenses = filtered

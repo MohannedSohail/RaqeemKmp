@@ -248,4 +248,18 @@ class DialectParserTest {
         val parsed = ArabicNumberNormalizer.parseArabicNumberWords("خمسة وثلاثين ونص")
         assertEquals(35.5, parsed)
     }
+
+    // 25. ID uniqueness and valid prefix
+    @Test
+    fun testParseSpokenTextGeneratesUniqueIds() {
+        val result1 = parser.parseSpokenText("قهوة بعشرة شيكل")
+        val result2 = parser.parseSpokenText("قهوة بعشرة شيكل")
+        assertEquals(1, result1.items.size)
+        assertEquals(1, result2.items.size)
+        val id1 = result1.items.first().id
+        val id2 = result2.items.first().id
+        assertTrue(id1.startsWith("exp_"), "Item ID must start with exp_")
+        assertTrue(id2.startsWith("exp_"), "Item ID must start with exp_")
+        assertTrue(id1 != id2, "Rapidly parsed items must have unique IDs")
+    }
 }
