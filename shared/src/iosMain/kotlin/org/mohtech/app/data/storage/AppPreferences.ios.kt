@@ -24,13 +24,24 @@ class IosAppPreferences : AppPreferences {
 
     override fun getWeeklyBudget(): Double {
         if (userDefaults.objectForKey("weekly_budget") == null) {
-            return 2500.0
+            return 0.0
         }
         return userDefaults.doubleForKey("weekly_budget")
     }
 
     override fun setWeeklyBudget(budget: Double) {
         userDefaults.setDouble(budget, forKey = "weekly_budget")
+    }
+
+    override fun getWeekStartDay(): Int {
+        if (userDefaults.objectForKey("week_start_day") == null) {
+            return 6
+        }
+        return userDefaults.integerForKey("week_start_day").toInt()
+    }
+
+    override fun setWeekStartDay(day: Int) {
+        userDefaults.setInteger(day.toLong(), forKey = "week_start_day")
     }
 }
 

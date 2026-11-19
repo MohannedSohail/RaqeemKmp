@@ -17,7 +17,7 @@ class SplashOnboardingStateMachineTest {
     private class InMemoryPreferences(
         private var onboardingCompleted: Boolean = false,
         private var preferredCurrency: String = "₪",
-        private var weeklyBudget: Double = 2500.0
+        private var weeklyBudget: Double = 0.0
     ) : AppPreferences {
         override fun isOnboardingCompleted(): Boolean = onboardingCompleted
         override fun setOnboardingCompleted(completed: Boolean) { onboardingCompleted = completed }

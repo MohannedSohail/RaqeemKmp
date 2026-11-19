@@ -13,6 +13,10 @@ interface AppPreferences {
 
     fun getWeeklyBudget(): Double
     fun setWeeklyBudget(budget: Double)
+    fun isWeeklyBudgetSet(): Boolean = getWeeklyBudget() > 0.0
+
+    fun getWeekStartDay(): Int = 6
+    fun setWeekStartDay(day: Int) {}
 }
 
 /**

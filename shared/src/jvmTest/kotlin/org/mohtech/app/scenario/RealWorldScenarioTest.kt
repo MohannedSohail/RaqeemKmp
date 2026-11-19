@@ -63,7 +63,7 @@ class RealWorldScenarioTest {
     private class ScenarioPreferences(
         private var onboardingDone: Boolean = false,
         private var currency: String = "₪",
-        private var weeklyBudget: Double = 2500.0
+        private var weeklyBudget: Double = 0.0
     ) : AppPreferences {
         override fun isOnboardingCompleted(): Boolean = onboardingDone
         override fun setOnboardingCompleted(completed: Boolean) { onboardingDone = completed }

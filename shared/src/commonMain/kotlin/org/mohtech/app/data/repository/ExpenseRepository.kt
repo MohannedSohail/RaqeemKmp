@@ -76,23 +76,25 @@ class LocalExpenseRepository(
     }
 
     override suspend fun getTodayTotal(): Double {
-        val now = Clock.System.now()
-        val today = Instant.fromEpochMilliseconds(now.toEpochMilliseconds())
-            .toLocalDateTime(TimeZone.currentSystemDefault()).date
+        val nowMillis = Clock.System.now().toEpochMilliseconds()
+        val startOfToday = CalendarWeekUtil.getTodayStartTimestamp(nowMillis)
+        val activeCurrency = preferences.getPreferredCurrency()
 
         return _expensesFlow.value.filter { item ->
-            val itemDate = Instant.fromEpochMilliseconds(item.timestamp)
-                .toLocalDateTime(TimeZone.currentSystemDefault()).date
-            itemDate == today
+            item.timestamp >= startOfToday && (activeCurrency.isBlank() || item.currency == activeCurrency)
         }.sumOf { it.amount }
     }
 
     override suspend fun getWeeklyTotal(): Double {
         val nowMillis = Clock.System.now().toEpochMilliseconds()
-        val sevenDaysAgoMillis = nowMillis - (7L * 24L * 60L * 60L * 1000L)
+        val startOfWeek = CalendarWeekUtil.getWeekStartTimestamp(
+            currentTimestamp = nowMillis,
+            weekStartDayIso = preferences.getWeekStartDay()
+        )
+        val activeCurrency = preferences.getPreferredCurrency()
 
         return _expensesFlow.value.filter { item ->
-            item.timestamp in sevenDaysAgoMillis..nowMillis
+            item.timestamp >= startOfWeek && (activeCurrency.isBlank() || item.currency == activeCurrency)
         }.sumOf { it.amount }
     }
 

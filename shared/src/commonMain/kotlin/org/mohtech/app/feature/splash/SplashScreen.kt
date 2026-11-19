@@ -172,7 +172,7 @@ fun SplashScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "ذكاء المصاريف بالصوت • محلي 100%",
+                        text = "ذكاء المصاريف بالصوت",
                         color = RaqeemColors.TextSecondary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Normal,
@@ -225,7 +225,7 @@ fun SplashScreen(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "ذكاء المصاريف بالصوت • محلي 100%",
+                    text = "ذكاء المصاريف بالصوت",
                     color = RaqeemColors.TextSecondary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Normal,

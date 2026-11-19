@@ -1,10 +1,13 @@
 package org.mohtech.app.feature.dashboard.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,8 +22,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,28 +43,68 @@ import org.mohtech.app.core.theme.RaqeemColors
  * - Nested radius: outer 20dp, inner badge 8dp.
  * - Hairline border: 1dp @ 8% opacity.
  * - Calm, exact fintech metrics without decorative noise.
+ * - Dynamically calibrated to user weekly budget:
+ *   * <= 70%: Emerald Green
+ *   * 70%..100%: Amber Warning
+ *   * > 100%: Coral Rose Over-budget Alert
+ * - Clean unset state inviting user to configure weekly budget.
  */
 @Composable
 fun BudgetRadarCard(
     todayTotal: Double,
     weeklyTotal: Double,
     currency: String,
-    weeklyBudget: Double = 2500.0,
+    weeklyBudget: Double = 0.0,
+    onConfigureBudget: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val progressRatio = if (weeklyBudget > 0.0) {
-        (weeklyTotal / weeklyBudget).toFloat().coerceIn(0.04f, 1.0f)
-    } else if (weeklyTotal > 0.0) {
-        (todayTotal / weeklyTotal).toFloat().coerceIn(0.04f, 1.0f)
+    val isBudgetSet = weeklyBudget > 0.0
+    val budgetRatio = if (isBudgetSet) {
+        (weeklyTotal / weeklyBudget).toFloat()
     } else {
         0.0f
     }
 
+    val progressClamped = budgetRatio.coerceIn(0.0f, 1.0f)
     val animatedProgress by animateFloatAsState(
-        targetValue = progressRatio,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        targetValue = if (isBudgetSet) maxOf(0.04f, progressClamped) else 0.0f,
+        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
         label = "radarProgress"
     )
+
+    val targetStatusColor = when {
+        !isBudgetSet -> RaqeemColors.TextSecondary
+        budgetRatio > 1.0f -> RaqeemColors.CoralRose
+        budgetRatio >= 0.70f -> Color(0xFFFFA000) // Amber
+        else -> RaqeemColors.EmeraldGreen
+    }
+
+    val animatedStatusColor by animateColorAsState(
+        targetValue = targetStatusColor,
+        animationSpec = tween(durationMillis = 400),
+        label = "statusColor"
+    )
+
+    val badgeText = if (isBudgetSet) {
+        val budgetFormatted = if (weeklyBudget % 1.0 == 0.0) "${weeklyBudget.toInt()}" else "$weeklyBudget"
+        "الميزانية $budgetFormatted $currency"
+    } else {
+        "حدد الميزانية"
+    }
+
+    val statusSubtitle = when {
+        !isBudgetSet -> "حدد ميزانيتك الأسبوعية"
+        budgetRatio > 1.0f -> {
+            val exceeded = weeklyTotal - weeklyBudget
+            val diffFormatted = if (exceeded % 1.0 == 0.0) "${exceeded.toInt()}" else "${exceeded.toInt()}"
+            "تجاوز بمقدار $diffFormatted $currency"
+        }
+        else -> {
+            val remaining = weeklyBudget - weeklyTotal
+            val remFormatted = if (remaining % 1.0 == 0.0) "${remaining.toInt()}" else "${remaining.toInt()}"
+            "المتبقي $remFormatted $currency"
+        }
+    }
 
     Box(
         modifier = modifier
@@ -67,10 +112,15 @@ fun BudgetRadarCard(
             .clip(RoundedCornerShape(20.dp))
             .background(RaqeemColors.SurfaceCard)
             .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(color = RaqeemColors.EmeraldGreen.copy(alpha = 0.15f)),
+                onClick = onConfigureBudget
+            )
             .padding(20.dp)
     ) {
         Column {
-            // Header: Section Context & Quiet Status
+            // Header: Section Context & Budget Badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -81,7 +131,7 @@ fun BudgetRadarCard(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(RaqeemColors.EmeraldGreen)
+                            .background(animatedStatusColor)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -94,14 +144,14 @@ fun BudgetRadarCard(
 
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(RaqeemColors.SurfaceElevated)
-                        .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "محلي 100%",
-                        color = RaqeemColors.TextTertiary,
+                        text = badgeText,
+                        color = if (isBudgetSet) RaqeemColors.TextPrimary else RaqeemColors.EmeraldGreen,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -180,27 +230,31 @@ fun BudgetRadarCard(
                     .fillMaxWidth()
                     .height(6.dp)
                     .clip(RoundedCornerShape(3.dp)),
-                color = RaqeemColors.EmeraldGreen,
+                color = animatedStatusColor,
                 trackColor = RaqeemColors.SurfaceElevated,
                 strokeCap = StrokeCap.Round
             )
 
-            if (weeklyBudget > 0.0) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val percent = ((weeklyTotal / weeklyBudget) * 100).toInt().coerceAtLeast(0)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Footer Subtitle Status
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = statusSubtitle,
+                    color = animatedStatusColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                if (isBudgetSet) {
+                    val percentageInt = (budgetRatio * 100).toInt()
                     Text(
-                        text = "استهلاك الميزانية ($percent%)",
+                        text = "$percentageInt%",
                         color = RaqeemColors.TextTertiary,
-                        fontSize = 12.sp
-                    )
-                    Text(
-                        text = "${if (weeklyBudget % 1.0 == 0.0) weeklyBudget.toInt() else weeklyBudget} $currency",
-                        color = RaqeemColors.TextSecondary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )

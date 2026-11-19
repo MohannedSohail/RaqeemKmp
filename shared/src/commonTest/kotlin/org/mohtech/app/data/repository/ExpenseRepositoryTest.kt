@@ -39,7 +39,7 @@ class FakeRepoStorage : PlatformExpenseStorage {
 class FakeRepoPreferences : AppPreferences {
     private var onboardingDone = false
     private var currency = "₪"
-    private var weeklyBudget = 2500.0
+    private var weeklyBudget = 0.0
 
     override fun isOnboardingCompleted(): Boolean = onboardingDone
     override fun setOnboardingCompleted(completed: Boolean) { onboardingDone = completed }
@@ -222,7 +222,7 @@ class ExpenseRepositoryTest {
     fun testWeeklyBudgetPreferences() {
         // Default weekly budget configuration check
         val defaultBudget = preferences.getWeeklyBudget()
-        assertEquals(2500.0, defaultBudget)
+        assertEquals(0.0, defaultBudget)
 
         // Update weekly budget
         preferences.setWeeklyBudget(3500.0)

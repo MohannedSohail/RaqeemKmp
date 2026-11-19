@@ -27,11 +27,19 @@ class AndroidAppPreferences(context: Context) : AppPreferences {
     }
 
     override fun getWeeklyBudget(): Double {
-        return prefs.getString("weekly_budget", null)?.toDoubleOrNull() ?: 2500.0
+        return prefs.getString("weekly_budget", null)?.toDoubleOrNull() ?: 0.0
     }
 
     override fun setWeeklyBudget(budget: Double) {
         prefs.edit().putString("weekly_budget", budget.toString()).apply()
+    }
+
+    override fun getWeekStartDay(): Int {
+        return prefs.getInt("week_start_day", 6)
+    }
+
+    override fun setWeekStartDay(day: Int) {
+        prefs.edit().putInt("week_start_day", day).apply()
     }
 }
 

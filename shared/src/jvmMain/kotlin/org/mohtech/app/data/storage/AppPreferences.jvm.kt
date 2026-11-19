@@ -36,11 +36,20 @@ class JvmAppPreferences : AppPreferences {
     }
 
     override fun getWeeklyBudget(): Double {
-        return properties.getProperty("weekly_budget")?.toDoubleOrNull() ?: 2500.0
+        return properties.getProperty("weekly_budget")?.toDoubleOrNull() ?: 0.0
     }
 
     override fun setWeeklyBudget(budget: Double) {
         properties.setProperty("weekly_budget", budget.toString())
+        save()
+    }
+
+    override fun getWeekStartDay(): Int {
+        return properties.getProperty("week_start_day")?.toIntOrNull() ?: 6
+    }
+
+    override fun setWeekStartDay(day: Int) {
+        properties.setProperty("week_start_day", day.toString())
         save()
     }
 

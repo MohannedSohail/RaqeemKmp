@@ -148,7 +148,10 @@ class SanitizationRequirementsTest {
     @Test
     fun testNoHardcodedNetworkUrlsInCodebase() {
         val files = ProjectSourceInspector.getSourceFileContents()
-        val urlRegex = Regex("""https?://(?!schemas\.android\.com|www\.w3\.org)[^\s"'>]+""")
+        // Expanded exception: schemas.openxmlformats.org and purl.org are strictly XML namespace identifiers
+        // required by the Open Packaging Conventions (ECMA-376 / ISO/IEC 29500) for valid XLSX generation.
+        // They are static schema URIs, never fetched over the network.
+        val urlRegex = Regex("""https?://(?!schemas\.android\.com|www\.w3\.org|schemas\.openxmlformats\.org|purl\.org)[^\s"'>]+""")
 
         val violations = mutableListOf<String>()
         for ((path, content) in files) {
