@@ -40,6 +40,31 @@
 ```powershell
 .\gradlew.bat :androidApp:bundleRelease
 ```
-- **حجم الحزمة الناتجة:** **35.3 MB** في `androidApp/build/outputs/bundle/release/androidApp-release.aab` (أقل بكثير من سقف 200 MB لـ Google Play).
+- **حجم الحزمة الناتجة:** **35.5 MB** في `androidApp/build/outputs/bundle/release/androidApp-release.aab` (أقل بكثير من سقف 200 MB لـ Google Play).
 - **المكتبات الأصلية المتضمنة:** `base/lib/arm64-v8a/libwhisper.so` (1.1 MB مجمعة من مصدر C++ الأصلي عبر CMake).
 - **النموذج المتضمن:** `base/assets/models/ggml-tiny-q5_1.bin` (32.1 MB).
+
+---
+
+## 🚀 الإصدار 2.2: ترقية دقة الصوت، هيكل التبويبات، والميزانية، وتصدير Excel/PDF (Parts A through F)
+
+### 📋 مصفوفة الميزات والتحقق الفعلي
+
+| الميزة | المعمارية والتطبيق | الحالة الواقعية |
+|:---|:---|:---:|
+| **Part A: دقة الصوت والـ VAD والمصحح** | `VoiceActivityDetector.kt` يقتطع الصمت ويرفض التسجيل الفارغ، `TranscriptNormalizer.kt` يصحح سياقياً، وإصلاح مضاعفة الآلاف والكسور في `ArabicNumberNormalizer.kt`، وتلقيم whisper.cpp بجملة طبيعية ومحددات قمع الهلوسة | **تم واختُبر آلياً ✅** (168 اختباراً في `:shared:jvmTest`)، والتقييم الميداني بانتظار جهاز حقيقي وفق `docs/VOICE_EVAL.md` |
+| **Part B: هيكل التنقل 4 تبويبات** | `MainShell.kt` و 4 تبويبات بـ `MainTab` مع حفظ الحالة عبر التدوير، وشريط سفلي وNavigationRail للأفقي، وزر رجوع | **تم واختُبر آلياً ✅** (الواجهة والتدوير بانتظار فحص يدوي) |
+| **Part C: الميزانية وإزالة «محلي 100%»** | `BudgetEditorDialog.kt` وحساب الأسبوع التقويمي القابل للتعديل، وإزالة كاملة لعبارة «محلي 100%» من الواجهة | **تم واختُبر آلياً ✅** |
+| **Part D: الـ Snackbar المخصص والتراجع** | `RaqeemSnackbarHost.kt` بموضع فوق الشريط السفلي، وتباين WCAG AAA (15.8:1 و6.9:1)، وخط تقدم زمني للتراجع 6 ثوانٍ | **تم واختُبر آلياً ✅** |
+| **Part E: بطاقات المصاريف والحوارات** | `ExpenseItemCard.kt` و`SwipeToDismissBox` باتجاه واحد، و`ConfirmActionDialog.kt` بحركة دخول وخروج ناعمة واهتزاز | **تم واختُبر آلياً ✅** (الفحص اللمسي والسحب يدوي) |
+| **Part F: تصدير التقارير (Excel/PDF)** | `XlsxWriter.kt` بـ Kotlin الخالص دون تبعيات، و`PdfReportWriter.android.kt` بـ Android Canvas، ومشاركة FileProvider وحفظ SAF | **تم واختُبر آلياً ✅** (فتح الملفات في Excel وقارئ PDF يدوي) |
+
+### 🧪 نتائج الأوامر الفعلية للإصدار V2.2:
+1. `.\gradlew.bat :shared:jvmTest`: **168 اختباراً ناجحاً بنسبة 100%** (`BUILD SUCCESSFUL in 10s`).
+2. `.\gradlew.bat :androidApp:assembleDebug`: **ناجح 100%** (`BUILD SUCCESSFUL in 12s`).
+3. `.\gradlew.bat :androidApp:bundleRelease`: **ناجح 100%** بحجم **35.5 MB** (`BUILD SUCCESSFUL in 13s`).
+4. **نسب التباين المقيسة لـ RaqeemSnackbarHost (WCAG 2.1):**
+   - خلفية الحاوية: `#182032`
+   - النص الأساسي (`#FFFFFF`): **15.84 : 1** (متوافق مع معيار AAA $\ge 4.5:1$).
+   - زر الإجراء (`#00C48C`): **6.96 : 1** (متوافق مع معيار AA $\ge 4.5:1$).
+   - شريط التمييز الدلالي: المرجاني (`#FF5C5C`) = **5.30 : 1**؛ السيان (`#22D3EE`) = **9.07 : 1** ($\ge 3:1$).

@@ -27,6 +27,15 @@
 5. **صفر سحابة وخصوصية مطلقة:**
    - المانيفست خالٍ تماماً من أذونات `INTERNET` أو `ACCESS_NETWORK_STATE`.
    - تخزين محلي مباشر عبر `kotlinx.serialization` بصيغة JSON.
+6. **هيكل تنقل متعدد التبويبات (MainShell & 4 Tabs):**
+   - 4 تبويبات متخصصة (`HOME`, `HISTORY`, `REPORTS`, `SETTINGS`) مع شريط سفلي UnSlop وNavigationRail للأفقي مع حفظ الحالة عبر التدوير وزر رجوع.
+7. **كشف النشاط الصوتي والمصحح اللاحق (VAD & Transcript Normalizer):**
+   - VAD نقي بـ Kotlin في `commonMain` يقتطع الصمت ويرفض التسجيلات الفارغة لمنع الهلوسة.
+   - مصحح صوتي سياقي للأخطاء الشائعة وحماية الأسماء ودعم ضرب الآلاف والكسور المركبة.
+8. **تصدير احترافي للتقارير (Excel و PDF حقيقيان):**
+   - كاتب XLSX نقي بـ Kotlin دون مكتبات خارجية (ZIP/XML مع صيغ `=SUM` ودعم اتجاه RTL).
+   - كاتب PDF أصلي بـ Android Canvas مع BiDi ودعم كامل للخط العربي.
+   - مشاركة وحفظ محلي عبر Android FileProvider و Storage Access Framework (SAF).
 
 ---
 

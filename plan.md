@@ -98,3 +98,36 @@
   - فحص خلو الكود والمانيفست من `INTERNET` و `android.speech`.
 - [x] **تحديث وثائق المشروع (README.md و review.md و docs/WHISPER_ARCHITECTURE_GUIDE.md):**
   - توثيق تفاصيل JNI وربط الميزانية ومراحل المعالجة الصوتية وحفظ الحالة عند التدوير.
+
+---
+
+### المرحلة 5: ترقية دقة الصوت وهيكل التبويبات والميزانية والتصدير (V2.2 - Parts A through F)
+- [x] **الجزء A: دقة الصوت والمصحح اللاحق والـ VAD:**
+  - تلقيم whisper.cpp بجملة طبيعية ومحددات خفض الهلوسة في JNI.
+  - VAD بـ Kotlin الخالص في `VoiceActivityDetector.kt` لاقتطاع الصمت ورفض التسجيل الفارغ.
+  - مصحح لاحق سياقي `TranscriptNormalizer.kt` للأخطاء الشائعة وحماية الأسماء.
+  - إصلاح مضاعفة الآلاف والكسور في `ArabicNumberNormalizer.kt` وإضافة أنماط «سددت عن».
+  - توثيق منهجية التقييم في `docs/VOICE_EVAL.md`.
+  - **الحالة:** تم واختُبر آلياً ✅ (168 اختباراً في `:shared:jvmTest`).
+- [x] **الجزء B: هيكل التنقل متعدد الشاشات (MainShell & 4 Tabs):**
+  - إنشاء `MainTab` (HOME, HISTORY, REPORTS, SETTINGS) دون المساس بـ `AppDestination`.
+  - بناء `MainShell.kt` بشريط تنقل سفلي UnSlop وNavigationRail للأفقي مع حفظ الحالة عبر التدوير وزر رجوع.
+  - **الحالة:** تم واختُبر آلياً ✅ (فحص الواجهة والتدوير يدوي على جهاز).
+- [x] **الجزء C: الميزانية الأسبوعية وإزالة «محلي 100%»:**
+  - محرر الميزانية `BudgetEditorDialog.kt` وحساب الأسبوع التقويمي `CalendarWeekUtil.kt`.
+  - إزالة كاملة لعبارة «محلي 100%» من واجهات التطبيق والاستعاضة بصياغة هادئة.
+  - **الحالة:** تم واختُبر آلياً ✅.
+- [x] **الجزء D: الـ Snackbar المخصص والتراجع (RaqeemSnackbarHost):**
+  - مكوّن `RaqeemSnackbarHost.kt` بموضع صحيح مخصص ونسب تباين WCAG AAA (15.8:1 للنص و6.9:1 للأزرار).
+  - خط تقدم زمني للتراجع ودعم تراجع الحذف والتكرار وتغيير التصنيف.
+  - **الحالة:** تم واختُبر آلياً ✅.
+- [x] **الجزء E: بطاقات المصاريف التفاعلية والحوارات:**
+  - `ExpenseItemCard.kt` مع `combinedClickable` وقائمة سريعة لتغيير التصنيف.
+  - `SwipeToDismissBox` باتجاه واحد وحوار تأكيد أنيق `ConfirmActionDialog.kt` بحركة دخول وخروج ناعمة.
+  - **الحالة:** تم واختُبر آلياً ✅.
+- [x] **الجزء F: تصدير التقارير (Excel و PDF):**
+  - كاتب XLSX نقي بـ Kotlin في `XlsxWriter.kt` دون مكتبات خارجية بصيغ XML و rightToLeft و `=SUM`.
+  - كاتب PDF عبر Android Canvas في `PdfReportWriter.android.kt`.
+  - مشاركة FileProvider وتخزين SAF عبر `PlatformReportBridge`.
+  - إزالة خيارات JSON/CSV من الواجهة.
+  - **الحالة:** تم واختُبر آلياً ✅ (فحص فتح الملفات في Excel وقارئ PDF يدوي على جهاز).

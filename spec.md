@@ -23,6 +23,10 @@
 | **P11** | وثائق غير دقيقة (ذكر Gemini، وادعاء 100% إنجاز قبل اكتماله) | `README.md`، `review.md` | تطهير التوثيق من أي ذكر لـ Gemini أو Google، وتوثيق الواقع الفعلي بالأدلة الملموسة | مكتمل ومثبت برمجياً ✅ |
 | **P12** | إعادة تشغيل التطبيق وعودته للـ Splash عند تدوير الجوال | `App.kt`، `AppNavigationState.kt`، `AndroidManifest.xml` | حفظ الوجهة بـ Saver، والاحتفاظ بـ ViewModel عبر `viewModel()`، وإضافة `configChanges` | مكتمل ومثبت برمجياً ✅ |
 | **P13** | غياب شاشة معالجة مرئية بين التسجيل وظهور شيت المراجعة | `VoiceProcessingOverlay.kt`، `ExpenseViewModel.kt` | تطبيق حالة `ProcessingStage` التدرجية وعارض موجات وشيمر هيكلي وزر إلغاء فوري | مكتمل ومثبت برمجياً ✅ |
+| **P14** | ضعف دقة تفريغ الصوت والهلوسة على الصمت وأخطاء الأعداد المركبة | `VoiceActivityDetector.kt`، `TranscriptNormalizer.kt`، `ArabicNumberNormalizer.kt` | VAD محلي بـ Kotlin لقص الصمت ورفض التسجيل الفارغ، ومصحح صوتي سياقي، ودعم ضرب الآلاف والكسور المركبة | تم واختُبر آلياً ✅ (بانتظار تقييم ميداني) |
+| **P15** | تكديس الشاشة الرئيسية (شاشة واحدة طويلة) وعدم وجود هيكل تبويبات | `MainShell.kt`، `tabs/*`، `BackHandler.*` | هيكل تبويبات 4 بـ `MainTab` مع حفظ الحالة عبر التدوير، وشريط تنقل سفلي وNavigationRail للأفقي | تم واختُبر آلياً ✅ (فحص الواجهة يدوي) |
+| **P16** | غياب محرر الميزانية وتثبيتها بـ 2500 وظهور عبارات تسويقية | `BudgetEditorDialog.kt`، `CalendarWeekUtil.kt`، `AppPreferences.kt` | محرر ميزانية تفاعلي، بداية أسبوع قابلة للتعديل، وإزالة كاملة لعبارة «محلي 100%» من الواجهة | تم واختُبر آلياً ✅ |
+| **P17** | أزرار التصدير تكتفي بالنسخ للحافظة دون إنتاج ملفات حقيقية | `XlsxWriter.kt`، `PdfReportWriter.android.kt`، `PlatformReportBridge.*` | كاتب XLSX نقي بـ Kotlin بدون تبعيات، ومولد PDF بـ Android Canvas، ومشاركة FileProvider وحفظ SAF | تم واختُبر آلياً ✅ (الـ PDF بانتظار فحص الخط يدوي) |
 
 ---
 
@@ -260,4 +264,86 @@ Feature: Data Integrity and Expense Update
     When the user edits an existing expense title or amount
     Then updateExpense persists the changes atomically
     And the history list and radar card update immediately
+```
+
+---
+
+## 🏗️ 5. العقود المعمارية للإصدار المتقدم (V2.2 Contracts)
+
+### 5.1 كشف النشاط الصوتي (VoiceActivityDetector)
+```kotlin
+class VoiceActivityDetector(
+    private val sampleRate: Int = 16000,
+    private val frameSizeMs: Int = 25,
+    private val minVoicedDurationMs: Int = 300,
+    private val paddingDurationMs: Int = 250,
+    private val silenceHangoverMs: Int = 300
+) {
+    fun process(pcmData: ShortArray): VadResult
+}
+
+sealed interface VadResult {
+    data class Speech(val trimmedPcm: ShortArray, val speechDurationMs: Long) : VadResult
+    data object NoSpeech : VadResult
+}
+```
+
+### 5.2 المصحح اللاحق للتفريغ الصوتي (TranscriptNormalizer)
+```kotlin
+class TranscriptNormalizer {
+    fun normalize(text: String): NormalizationResult
+}
+
+data class NormalizationResult(
+    val normalizedText: String,
+    val replacements: List<ReplacementRecord> = emptyList()
+)
+```
+
+### 5.3 هيكل التبويبات (MainTab)
+```kotlin
+enum class MainTab {
+    HOME,
+    HISTORY,
+    REPORTS,
+    SETTINGS
+}
+```
+
+### 5.4 تفاعلات البطاقات والتراجع (CardAction & UndoOperation)
+```kotlin
+sealed interface CardAction {
+    data class Delete(val item: ExpenseItem) : CardAction
+    data class Repeat(val item: ExpenseItem) : CardAction
+}
+
+sealed interface UndoOperation {
+    data class Deleted(val item: ExpenseItem) : UndoOperation
+    data class Repeated(val newItemId: String) : UndoOperation
+    data class CategoryChanged(val item: ExpenseItem, val previousCategory: ExpenseCategory) : UndoOperation
+}
+```
+
+### 5.5 تصدير التقارير (ReportData, XlsxWriter, PdfReportWriter)
+```kotlin
+data class ReportData(
+    val period: ReportPeriod,
+    val startDate: LocalDate,
+    val endDate: LocalDate,
+    val rows: List<ReportRow>,
+    val currencyTotals: Map<String, Double>,
+    val categoryBreakdowns: Map<String, List<CategorySummary>>,
+    val dailyTotals: Map<LocalDate, Double>
+)
+
+class XlsxWriter {
+    fun writeReport(report: ReportData): ByteArray
+}
+
+expect class PdfReportWriter {
+    val isSupported: Boolean
+    suspend fun generatePdf(report: ReportData): ByteArray
+}
+
+expect fun writeExportFileToCache(fileName: String, bytes: ByteArray): String
 ```
