@@ -23,11 +23,32 @@ enum class HapticFeedbackType {
     WarningAlert
 }
 
+enum class HapticKind {
+    TICK,
+    CONFIRM,
+    REJECT,
+    HEAVY
+}
+
 /**
  * Platform-agnostic contract for tactile haptic feedback.
  */
 interface RaqeemHaptics {
     fun trigger(type: HapticFeedbackType)
+
+    fun perform(kind: HapticKind) {
+        when (kind) {
+            HapticKind.TICK -> trigger(HapticFeedbackType.SubtleTick)
+            HapticKind.CONFIRM -> trigger(HapticFeedbackType.SuccessImpact)
+            HapticKind.REJECT -> trigger(HapticFeedbackType.WarningAlert)
+            HapticKind.HEAVY -> trigger(HapticFeedbackType.WarningAlert)
+        }
+    }
+
+    fun tick() = perform(HapticKind.TICK)
+    fun confirm() = perform(HapticKind.CONFIRM)
+    fun reject() = perform(HapticKind.REJECT)
+    fun heavy() = perform(HapticKind.HEAVY)
 }
 
 /**

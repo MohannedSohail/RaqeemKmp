@@ -376,5 +376,189 @@ object RaqeemIcons {
             )
         }
     }
+
+    @Composable
+    fun Home(
+        modifier: Modifier = Modifier,
+        size: Dp = 20.dp,
+        tint: Color = RaqeemColors.TextSecondary,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            // Roof and walls
+            val housePath = Path().apply {
+                moveTo(w * 0.18f, h * 0.45f)
+                lineTo(w * 0.50f, h * 0.18f)
+                lineTo(w * 0.82f, h * 0.45f)
+                lineTo(w * 0.82f, h * 0.84f)
+                lineTo(w * 0.18f, h * 0.84f)
+                close()
+            }
+            drawPath(housePath, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+            // Doorway
+            val doorPath = Path().apply {
+                moveTo(w * 0.40f, h * 0.84f)
+                lineTo(w * 0.40f, h * 0.58f)
+                lineTo(w * 0.60f, h * 0.58f)
+                lineTo(w * 0.60f, h * 0.84f)
+            }
+            drawPath(doorPath, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+    }
+
+    @Composable
+    fun List(
+        modifier: Modifier = Modifier,
+        size: Dp = 20.dp,
+        tint: Color = RaqeemColors.TextSecondary,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            val y1 = h * 0.28f
+            val y2 = h * 0.50f
+            val y3 = h * 0.72f
+
+            // Bullet dots
+            drawCircle(color = tint, radius = sw * 0.75f, center = Offset(w * 0.22f, y1))
+            drawCircle(color = tint, radius = sw * 0.75f, center = Offset(w * 0.22f, y2))
+            drawCircle(color = tint, radius = sw * 0.75f, center = Offset(w * 0.22f, y3))
+
+            // Lines
+            drawLine(color = tint, start = Offset(w * 0.36f, y1), end = Offset(w * 0.82f, y1), strokeWidth = sw, cap = StrokeCap.Round)
+            drawLine(color = tint, start = Offset(w * 0.36f, y2), end = Offset(w * 0.82f, y2), strokeWidth = sw, cap = StrokeCap.Round)
+            drawLine(color = tint, start = Offset(w * 0.36f, y3), end = Offset(w * 0.72f, y3), strokeWidth = sw, cap = StrokeCap.Round)
+        }
+    }
+
+    @Composable
+    fun Chart(
+        modifier: Modifier = Modifier,
+        size: Dp = 20.dp,
+        tint: Color = RaqeemColors.TextSecondary,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            // 3 bars
+            val bWidth = w * 0.16f
+            val bottomY = h * 0.82f
+
+            // Bar 1 (short)
+            drawRoundRect(
+                color = tint,
+                topLeft = Offset(w * 0.18f, h * 0.52f),
+                size = Size(bWidth, bottomY - h * 0.52f),
+                cornerRadius = CornerRadius(w * 0.04f, w * 0.04f),
+                style = Stroke(width = sw)
+            )
+
+            // Bar 2 (tall)
+            drawRoundRect(
+                color = tint,
+                topLeft = Offset(w * 0.42f, h * 0.22f),
+                size = Size(bWidth, bottomY - h * 0.22f),
+                cornerRadius = CornerRadius(w * 0.04f, w * 0.04f),
+                style = Stroke(width = sw)
+            )
+
+            // Bar 3 (medium)
+            drawRoundRect(
+                color = tint,
+                topLeft = Offset(w * 0.66f, h * 0.38f),
+                size = Size(bWidth, bottomY - h * 0.38f),
+                cornerRadius = CornerRadius(w * 0.04f, w * 0.04f),
+                style = Stroke(width = sw)
+            )
+        }
+    }
+
+    @Composable
+    fun Settings(
+        modifier: Modifier = Modifier,
+        size: Dp = 20.dp,
+        tint: Color = RaqeemColors.TextSecondary,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            // Sliders / Controls aesthetic
+            val y1 = h * 0.32f
+            val y2 = h * 0.68f
+
+            drawLine(color = tint, start = Offset(w * 0.18f, y1), end = Offset(w * 0.82f, y1), strokeWidth = sw, cap = StrokeCap.Round)
+            drawLine(color = tint, start = Offset(w * 0.18f, y2), end = Offset(w * 0.82f, y2), strokeWidth = sw, cap = StrokeCap.Round)
+
+            // Sliders knobs
+            drawCircle(color = tint, radius = w * 0.12f, center = Offset(w * 0.40f, y1), style = Stroke(width = sw))
+            drawCircle(color = tint, radius = w * 0.12f, center = Offset(w * 0.64f, y2), style = Stroke(width = sw))
+        }
+    }
+
+    @Composable
+    fun Repeat(
+        modifier: Modifier = Modifier,
+        size: Dp = 20.dp,
+        tint: Color = RaqeemColors.EmeraldGreen,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            // Top arc
+            drawArc(
+                color = tint,
+                startAngle = 190f,
+                sweepAngle = 140f,
+                useCenter = false,
+                topLeft = Offset(w * 0.18f, h * 0.18f),
+                size = Size(w * 0.64f, h * 0.64f),
+                style = Stroke(width = sw, cap = StrokeCap.Round)
+            )
+
+            // Bottom arc
+            drawArc(
+                color = tint,
+                startAngle = 10f,
+                sweepAngle = 140f,
+                useCenter = false,
+                topLeft = Offset(w * 0.18f, h * 0.18f),
+                size = Size(w * 0.64f, h * 0.64f),
+                style = Stroke(width = sw, cap = StrokeCap.Round)
+            )
+
+            // Top arrow head
+            val arrow1 = Path().apply {
+                moveTo(w * 0.76f, h * 0.32f)
+                lineTo(w * 0.86f, h * 0.36f)
+                lineTo(w * 0.82f, h * 0.48f)
+            }
+            drawPath(arrow1, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+            // Bottom arrow head
+            val arrow2 = Path().apply {
+                moveTo(w * 0.24f, h * 0.68f)
+                lineTo(w * 0.14f, h * 0.64f)
+                lineTo(w * 0.18f, h * 0.52f)
+            }
+            drawPath(arrow2, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+    }
 }
 

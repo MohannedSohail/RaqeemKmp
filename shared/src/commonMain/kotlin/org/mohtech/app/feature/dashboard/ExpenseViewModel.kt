@@ -2,6 +2,7 @@ package org.mohtech.app.feature.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -11,19 +12,27 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
+import org.mohtech.app.ai.audio.AudioProcessor
 import org.mohtech.app.ai.audio.VoiceEngine
 import org.mohtech.app.ai.nlp.LocalDialectExpenseParser
+import org.mohtech.app.ai.nlp.TranscriptNormalizer
 import org.mohtech.app.ai.whisper.LocalSpeechTranscriber
 import org.mohtech.app.ai.whisper.RawAudioRecorder
 import org.mohtech.app.ai.whisper.SpeechError
 import org.mohtech.app.ai.whisper.TranscribeResult
 import org.mohtech.app.ai.whisper.WhisperModelConfig
+import org.mohtech.app.core.haptics.HapticKind
 import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
 import org.mohtech.app.data.model.ProofType
 import org.mohtech.app.data.repository.ExpenseRepository
 import org.mohtech.app.data.storage.AppPreferences
+import org.mohtech.app.feature.reports.PdfReportWriter
+import org.mohtech.app.feature.reports.ReportBuilder
+import org.mohtech.app.feature.reports.ReportPeriod
+import org.mohtech.app.feature.reports.XlsxWriter
+import org.mohtech.app.feature.reports.writeExportFileToCache
 
 class ExpenseViewModel(
     private val repository: ExpenseRepository,
@@ -41,6 +50,7 @@ class ExpenseViewModel(
             activeCurrency = preferences.getPreferredCurrency(),
             isOnboardingDone = preferences.isOnboardingCompleted(),
             weeklyBudget = preferences.getWeeklyBudget(),
+            weekStartDay = preferences.getWeekStartDay(),
             isHardwareSpeechAvailable = voiceEngine?.isAvailable() ?: false
         )
     )
@@ -56,6 +66,7 @@ class ExpenseViewModel(
     fun handleIntent(intent: ExpenseIntent) {
         when (intent) {
             is ExpenseIntent.LoadInitialData -> loadInitialData()
+            is ExpenseIntent.SelectTab -> selectTab(intent.tab)
             is ExpenseIntent.CheckPermissionsAndStartRecord -> startRecording()
             is ExpenseIntent.StopRecording -> stopRecording()
             is ExpenseIntent.CancelProcessing -> cancelProcessing()
@@ -68,12 +79,37 @@ class ExpenseViewModel(
             is ExpenseIntent.RestoreExpense -> restoreExpense(intent.item)
             is ExpenseIntent.EditExpense -> editExpense(intent.item)
             is ExpenseIntent.FilterByCategory -> filterByCategory(intent.category)
+            is ExpenseIntent.SearchExpenses -> searchExpenses(intent.query)
             is ExpenseIntent.UpdateWeeklyBudget -> updateWeeklyBudget(intent.budget)
+            is ExpenseIntent.SetWeeklyBudget -> setWeeklyBudget(intent.budget)
+            is ExpenseIntent.SetWeekStartDay -> setWeekStartDay(intent.dayIso)
+            is ExpenseIntent.SetPreferredCurrency -> setPreferredCurrency(intent.currency)
+            is ExpenseIntent.OpenBudgetEditor -> _uiState.update { it.copy(showBudgetEditor = true) }
+            is ExpenseIntent.DismissBudgetEditor -> _uiState.update { it.copy(showBudgetEditor = false) }
+            is ExpenseIntent.RequestDelete -> requestDelete(intent.item)
+            is ExpenseIntent.RequestRepeat -> requestRepeat(intent.item)
+            is ExpenseIntent.RepeatExpense -> repeatExpense(intent.item)
+            is ExpenseIntent.ChangeCategory -> changeCategory(intent.item, intent.newCategory)
+            is ExpenseIntent.ConfirmPendingAction -> confirmPendingAction()
+            is ExpenseIntent.DismissPendingAction -> dismissPendingAction()
+            is ExpenseIntent.UndoLast -> undoLast()
+            is ExpenseIntent.ClearHighlight -> _uiState.update { it.copy(highlightedExpenseId = null) }
+            is ExpenseIntent.SelectReportPeriod -> selectReportPeriod(intent.period)
+            is ExpenseIntent.ExportExcelReport -> exportExcelReport()
+            is ExpenseIntent.ExportPdfReport -> exportPdfReport()
+            is ExpenseIntent.DismissExportResult -> dismissExportResult()
             is ExpenseIntent.OpenManualSheet -> openManualSheet()
             is ExpenseIntent.DismissReviewSheet -> dismissReviewSheet()
             is ExpenseIntent.DismissFallbackSheet -> dismissFallbackSheet()
             is ExpenseIntent.DismissPermissionRationale -> dismissPermissionRationale()
             is ExpenseIntent.CompleteOnboarding -> completeOnboarding()
+        }
+    }
+
+    private fun selectTab(tab: MainTab) {
+        _uiState.update { it.copy(currentTab = tab) }
+        viewModelScope.launch {
+            _effects.emit(ExpenseEffect.Haptic(HapticKind.TICK))
         }
     }
 
@@ -86,12 +122,22 @@ class ExpenseViewModel(
                 val todayTotal = repository.getTodayTotal()
                 val weeklyTotal = repository.getWeeklyTotal()
                 val currentFilter = _uiState.value.selectedCategoryFilter
+                val currentSearch = _uiState.value.searchQuery.trim().lowercase()
 
-                val filtered = if (currentFilter == null) {
-                    expenses
-                } else {
-                    expenses.filter { it.category == currentFilter }
+                val filtered = expenses.filter { item ->
+                    val matchCat = currentFilter == null || item.category == currentFilter
+                    val matchQuery = currentSearch.isEmpty() ||
+                        item.title.lowercase().contains(currentSearch) ||
+                        item.payer.name.lowercase().contains(currentSearch)
+                    matchCat && matchQuery
                 }
+
+                val currentPeriod = _uiState.value.selectedReportPeriod
+                val report = ReportBuilder.buildReport(
+                    expenses = expenses,
+                    period = currentPeriod,
+                    weekStartDayIso = preferences.getWeekStartDay()
+                )
 
                 _uiState.update { state ->
                     state.copy(
@@ -101,9 +147,11 @@ class ExpenseViewModel(
                         todayTotal = todayTotal,
                         weeklyTotal = weeklyTotal,
                         weeklyBudget = preferences.getWeeklyBudget(),
+                        weekStartDay = preferences.getWeekStartDay(),
                         activeCurrency = preferences.getPreferredCurrency(),
                         isOnboardingDone = preferences.isOnboardingCompleted(),
-                        isHardwareSpeechAvailable = voiceEngine?.isAvailable() ?: false
+                        isHardwareSpeechAvailable = voiceEngine?.isAvailable() ?: false,
+                        reportData = report
                     )
                 }
             }
@@ -114,6 +162,7 @@ class ExpenseViewModel(
         viewModelScope.launch {
             if (_uiState.value.isRecording) return@launch
             _effects.emit(ExpenseEffect.TriggerHapticFeedback)
+            _effects.emit(ExpenseEffect.Haptic(HapticKind.TICK))
 
             if (audioRecorder != null || transcriber != null) {
                 if (transcriber?.isModelReady() == false) {
@@ -158,7 +207,7 @@ class ExpenseViewModel(
             if (engine == null || !engine.isAvailable()) {
                 _uiState.update {
                     it.copy(
-                        isHardwareSpeechAvailable = false,
+                        isRecording = false,
                         showFallbackManualSheet = true
                     )
                 }
@@ -194,38 +243,34 @@ class ExpenseViewModel(
                     _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
                     when (error) {
                         "PERMISSION_DENIED" -> {
+                            _uiState.update {
+                                it.copy(
+                                    showFallbackManualSheet = true,
+                                    showPermissionRationaleDialog = true,
+                                    showPermissionRationaleSheet = true
+                                )
+                            }
                             viewModelScope.launch {
                                 _effects.emit(ExpenseEffect.RequestMicPermission)
                                 _effects.emit(ExpenseEffect.ShowToast("يرجى منح إذن استخدام الميكروفون"))
                             }
-                            _uiState.update { it.copy(showFallbackManualSheet = true) }
                         }
-                        "SPEECH_NOT_AVAILABLE" -> {
-                            _uiState.update {
-                                it.copy(
-                                    isHardwareSpeechAvailable = false,
-                                    showFallbackManualSheet = true
-                                )
-                            }
-                        }
-                        "NETWORK_ERROR" -> {
+                        "NO_MATCH" -> {
+                            _uiState.update { it.copy(userErrorMessage = "لم يتم التقاط أي كلام، حاول مجدداً") }
                             viewModelScope.launch {
-                                _effects.emit(ExpenseEffect.ShowToast("يتطلب التعرف الصوتي اتصالاً بالإنترنت أو تنزيل حزمة العربية دون اتصال"))
+                                _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
                             }
-                        }
-                        "NO_MATCH", "SPEECH_TIMEOUT" -> {
-                            viewModelScope.launch {
-                                _effects.emit(ExpenseEffect.ShowToast("لم نتمكن من سماع الصوت بوضوح، يرجى المحاولة ثانية"))
-                            }
-                        }
-                        "SPEECH_CANCELLED" -> {
-                            // User dismissed or closed the speech dialog, cleanly stay on dashboard
                         }
                         else -> {
-                            viewModelScope.launch {
-                                _effects.emit(ExpenseEffect.ShowToast("تعذر التعرف على الصوت، يمكنك استخدام الإدخال اليدوي"))
+                            _uiState.update {
+                                it.copy(
+                                    showFallbackManualSheet = true,
+                                    userErrorMessage = "تعذر التعرف على الصوت محلياً"
+                                )
                             }
-                            _uiState.update { it.copy(showFallbackManualSheet = true) }
+                            viewModelScope.launch {
+                                _effects.emit(ExpenseEffect.ShowToast("تعذر التعرف على الصوت محلياً"))
+                            }
                         }
                     }
                 }
@@ -233,49 +278,44 @@ class ExpenseViewModel(
         }
     }
 
-    private fun cancelProcessing() {
-        processingJob?.cancel()
-        processingJob = null
-        _uiState.update {
-            it.copy(
-                isRecording = false,
-                recordingAmplitude = 0f,
-                processingStage = ProcessingStage.IDLE
-            )
-        }
-    }
-
-    private fun updateWeeklyBudget(budget: Double) {
-        preferences.setWeeklyBudget(budget)
-        _uiState.update { it.copy(weeklyBudget = budget) }
-    }
-
     private fun stopRecording() {
         if (!_uiState.value.isRecording) return
-        _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
 
-        if (audioRecorder != null) {
-            val pcm = audioRecorder.stopRecording()
-            if (pcm == null) {
-                _uiState.update {
-                    it.copy(
-                        processingStage = ProcessingStage.IDLE,
-                        userErrorMessage = "تعذر استرجاع التسجيل الصوتي"
-                    )
-                }
-                viewModelScope.launch {
-                    _effects.emit(ExpenseEffect.ShowToast("تعذر استرجاع التسجيل الصوتي"))
-                }
+        val engine = voiceEngine
+        if (engine != null) {
+            engine.stopListening()
+            _uiState.update { it.copy(isRecording = false) }
+            return
+        }
+
+        val recorder = audioRecorder
+        if (recorder != null) {
+            val pcm = recorder.stopRecording()
+            _uiState.update {
+                it.copy(
+                    isRecording = false,
+                    recordingAmplitude = 0f
+                )
+            }
+
+            if (pcm == null || pcm.isEmpty()) {
+                handleSpeechError(SpeechError.EmptyResult)
                 return
             }
 
-            if (transcriber != null) {
-                processingJob?.cancel()
-                processingJob = viewModelScope.launch {
-                    _uiState.update { it.copy(processingStage = ProcessingStage.FINALIZING_AUDIO) }
-                    _uiState.update { it.copy(processingStage = ProcessingStage.TRANSCRIBING) }
+            val transcriberEngine = transcriber
+            if (transcriberEngine == null) {
+                _uiState.update { it.copy(showFallbackManualSheet = true) }
+                return
+            }
 
-                    val result = transcriber.transcribe(
+            processingJob?.cancel()
+            processingJob = viewModelScope.launch {
+                _uiState.update { it.copy(processingStage = ProcessingStage.FINALIZING_AUDIO) }
+                _uiState.update { it.copy(processingStage = ProcessingStage.TRANSCRIBING) }
+
+                try {
+                    val result = transcriberEngine.transcribe(
                         pcm,
                         WhisperModelConfig(language = "ar", translate = false)
                     )
@@ -284,10 +324,14 @@ class ExpenseViewModel(
                             if (result.text.isNotBlank()) {
                                 _uiState.update { it.copy(processingStage = ProcessingStage.UNDERSTANDING) }
                                 val now = Clock.System.now().toEpochMilliseconds()
-                                val batch = parser.parseSpokenText(
-                                    spokenText = result.text,
+                                val normalized = TranscriptNormalizer.normalize(result.text)
+                                val initialBatch = parser.parseSpokenText(
+                                    spokenText = normalized.normalizedText,
                                     defaultCurrency = _uiState.value.activeCurrency,
                                     currentTimestamp = now
+                                )
+                                val batch = initialBatch.copy(
+                                    items = initialBatch.items.map { it.copy(rawSpokenText = result.text) }
                                 )
                                 _uiState.update {
                                     it.copy(
@@ -304,14 +348,23 @@ class ExpenseViewModel(
                             handleSpeechError(result.error)
                         }
                     }
+                } catch (t: Throwable) {
+                    handleSpeechError(SpeechError.Unknown(t.message ?: "Transcription failed"))
                 }
             }
-            return
         }
+    }
 
-        if (voiceEngine != null) {
-            _uiState.update { it.copy(processingStage = ProcessingStage.FINALIZING_AUDIO) }
-            voiceEngine.stopListening()
+    private fun cancelProcessing() {
+        processingJob?.cancel()
+        processingJob = null
+        _uiState.update {
+            it.copy(
+                processingStage = ProcessingStage.IDLE,
+                isRecording = false,
+                recordingAmplitude = 0f,
+                reviewSheetPendingBatch = null
+            )
         }
     }
 
@@ -327,6 +380,7 @@ class ExpenseViewModel(
             is SpeechError.PermissionDenied -> {
                 _uiState.update {
                     it.copy(
+                        showFallbackManualSheet = true,
                         showPermissionRationaleDialog = true,
                         showPermissionRationaleSheet = true
                     )
@@ -375,10 +429,9 @@ class ExpenseViewModel(
                 }
             }
             is SpeechError.Unknown -> {
-                val msg = error.message.ifBlank { "حدث خطأ غير متوقع أثناء التعرف على الصوت" }
-                _uiState.update { it.copy(userErrorMessage = msg) }
+                _uiState.update { it.copy(userErrorMessage = error.message) }
                 viewModelScope.launch {
-                    _effects.emit(ExpenseEffect.ShowToast(msg))
+                    _effects.emit(ExpenseEffect.ShowToast(error.message))
                 }
             }
         }
@@ -391,10 +444,14 @@ class ExpenseViewModel(
     private fun parseManualSpeechText(rawText: String) {
         if (rawText.isBlank()) return
         val now = Clock.System.now().toEpochMilliseconds()
-        val batch = parser.parseSpokenText(
-            spokenText = rawText,
+        val normalized = TranscriptNormalizer.normalize(rawText)
+        val initialBatch = parser.parseSpokenText(
+            spokenText = normalized.normalizedText,
             defaultCurrency = _uiState.value.activeCurrency,
             currentTimestamp = now
+        )
+        val batch = initialBatch.copy(
+            items = initialBatch.items.map { it.copy(rawSpokenText = rawText) }
         )
 
         _uiState.update {
@@ -417,7 +474,7 @@ class ExpenseViewModel(
                 title = proof.merchant,
                 amount = proof.extractedAmount,
                 currency = proof.currency,
-                category = ExpenseCategory.GROCERIES, // default fallback
+                category = ExpenseCategory.GROCERIES,
                 timestamp = now,
                 proofType = ProofType.BANK_SMS,
                 proofDetails = proof,
@@ -451,18 +508,130 @@ class ExpenseViewModel(
                 )
             }
             _effects.emit(ExpenseEffect.TriggerHapticFeedback)
+            _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
             _effects.emit(ExpenseEffect.ShowToast("تم تسجيل المصروف بنجاح"))
         }
     }
 
+    // Direct deletion (tests expect DeleteExpense to remove item directly)
     private fun deleteExpense(expenseId: String) {
         viewModelScope.launch {
             val itemToDelete = _uiState.value.recentExpenses.find { it.id == expenseId }
             repository.deleteExpense(expenseId)
             if (itemToDelete != null) {
+                _uiState.update { it.copy(lastUndoOperation = UndoOperation.Deleted(itemToDelete)) }
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.HEAVY))
                 _effects.emit(ExpenseEffect.ShowUndoSnackbar(itemToDelete))
+                _effects.emit(
+                    ExpenseEffect.ShowMessage(
+                        message = "تم حذف ${itemToDelete.title}",
+                        kind = MessageKind.SUCCESS,
+                        undo = UndoOperation.Deleted(itemToDelete)
+                    )
+                )
             } else {
                 _effects.emit(ExpenseEffect.ShowToast("تم حذف المصروف"))
+            }
+        }
+    }
+
+    private fun requestDelete(item: ExpenseItem) {
+        _uiState.update { it.copy(pendingCardAction = CardAction.Delete(item)) }
+        viewModelScope.launch {
+            _effects.emit(ExpenseEffect.Haptic(HapticKind.TICK))
+        }
+    }
+
+    private fun requestRepeat(item: ExpenseItem) {
+        _uiState.update { it.copy(pendingCardAction = CardAction.Repeat(item)) }
+        viewModelScope.launch {
+            _effects.emit(ExpenseEffect.Haptic(HapticKind.TICK))
+        }
+    }
+
+    private fun confirmPendingAction() {
+        val action = _uiState.value.pendingCardAction
+        _uiState.update { it.copy(pendingCardAction = null) }
+        when (action) {
+            is CardAction.Delete -> deleteExpense(action.item.id)
+            is CardAction.Repeat -> repeatExpense(action.item)
+            null -> {}
+        }
+    }
+
+    private fun dismissPendingAction() {
+        _uiState.update { it.copy(pendingCardAction = null) }
+    }
+
+    private fun repeatExpense(item: ExpenseItem) {
+        viewModelScope.launch {
+            val now = Clock.System.now().toEpochMilliseconds()
+            val newItem = item.copy(
+                id = "exp_${now}_${(1000..9999).random()}",
+                timestamp = now
+            )
+            repository.saveExpense(newItem)
+            _uiState.update {
+                it.copy(
+                    highlightedExpenseId = newItem.id,
+                    lastUndoOperation = UndoOperation.Repeated(newItem.id)
+                )
+            }
+            _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+            _effects.emit(
+                ExpenseEffect.ShowMessage(
+                    message = "تم تكرار المصروف",
+                    kind = MessageKind.SUCCESS,
+                    undo = UndoOperation.Repeated(newItem.id)
+                )
+            )
+        }
+    }
+
+    private fun changeCategory(item: ExpenseItem, newCategory: ExpenseCategory) {
+        viewModelScope.launch {
+            val prevCat = item.category
+            val updated = item.copy(category = newCategory)
+            repository.updateExpense(updated)
+            _uiState.update {
+                it.copy(
+                    highlightedExpenseId = updated.id,
+                    lastUndoOperation = UndoOperation.CategoryChanged(updated, prevCat)
+                )
+            }
+            _effects.emit(ExpenseEffect.Haptic(HapticKind.TICK))
+            _effects.emit(
+                ExpenseEffect.ShowMessage(
+                    message = "تم تغيير التصنيف إلى ${newCategory.arabicTitle}",
+                    kind = MessageKind.SUCCESS,
+                    undo = UndoOperation.CategoryChanged(updated, prevCat)
+                )
+            )
+        }
+    }
+
+    private fun undoLast() {
+        viewModelScope.launch {
+            val undo = _uiState.value.lastUndoOperation ?: return@launch
+            _uiState.update { it.copy(lastUndoOperation = null) }
+            _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+
+            when (undo) {
+                is UndoOperation.Deleted -> {
+                    repository.saveExpense(undo.item)
+                    _uiState.update { it.copy(highlightedExpenseId = undo.item.id) }
+                    _effects.emit(ExpenseEffect.ShowToast("تم استرجاع المصروف"))
+                }
+                is UndoOperation.Repeated -> {
+                    repository.deleteExpense(undo.newItemId)
+                    _effects.emit(ExpenseEffect.ShowToast("تم التراجع عن التكرار"))
+                }
+                is UndoOperation.CategoryChanged -> {
+                    val restored = undo.item.copy(category = undo.previousCategory)
+                    repository.updateExpense(restored)
+                    _uiState.update { it.copy(highlightedExpenseId = restored.id) }
+                    _effects.emit(ExpenseEffect.ShowToast("تم استرجاع التصنيف السابق"))
+                }
             }
         }
     }
@@ -470,6 +639,7 @@ class ExpenseViewModel(
     private fun restoreExpense(item: ExpenseItem) {
         viewModelScope.launch {
             repository.saveExpense(item)
+            _uiState.update { it.copy(highlightedExpenseId = item.id) }
         }
     }
 
@@ -489,14 +659,169 @@ class ExpenseViewModel(
 
     private fun filterByCategory(category: ExpenseCategory?) {
         _uiState.update { state ->
-            val filtered = if (category == null) {
-                state.recentExpenses
-            } else {
-                state.recentExpenses.filter { it.category == category }
+            val q = state.searchQuery.trim().lowercase()
+            val filtered = state.recentExpenses.filter { item ->
+                val matchCat = category == null || item.category == category
+                val matchQuery = q.isEmpty() ||
+                    item.title.lowercase().contains(q) ||
+                    item.payer.name.lowercase().contains(q)
+                matchCat && matchQuery
             }
             state.copy(
                 selectedCategoryFilter = category,
                 filteredExpenses = filtered
+            )
+        }
+    }
+
+    private fun searchExpenses(query: String) {
+        _uiState.update { state ->
+            val q = query.trim().lowercase()
+            val filtered = state.recentExpenses.filter { item ->
+                val matchCat = state.selectedCategoryFilter == null || item.category == state.selectedCategoryFilter
+                val matchQuery = q.isEmpty() ||
+                    item.title.lowercase().contains(q) ||
+                    item.payer.name.lowercase().contains(q)
+                matchCat && matchQuery
+            }
+            state.copy(
+                searchQuery = query,
+                filteredExpenses = filtered
+            )
+        }
+    }
+
+    private fun updateWeeklyBudget(budget: Double) {
+        setWeeklyBudget(budget)
+    }
+
+    private fun setWeeklyBudget(budget: Double) {
+        preferences.setWeeklyBudget(budget)
+        _uiState.update { it.copy(weeklyBudget = budget, showBudgetEditor = false) }
+        viewModelScope.launch {
+            val wt = repository.getWeeklyTotal()
+            _uiState.update { it.copy(weeklyTotal = wt) }
+            _effects.emit(ExpenseEffect.ShowMessage("تم تحديث الميزانية بنجاح", MessageKind.SUCCESS))
+        }
+    }
+
+    private fun setWeekStartDay(dayIso: Int) {
+        preferences.setWeekStartDay(dayIso)
+        _uiState.update { it.copy(weekStartDay = dayIso) }
+        viewModelScope.launch {
+            val wt = repository.getWeeklyTotal()
+            _uiState.update { it.copy(weeklyTotal = wt) }
+        }
+    }
+
+    private fun setPreferredCurrency(currency: String) {
+        preferences.setPreferredCurrency(currency)
+        _uiState.update { it.copy(activeCurrency = currency) }
+        viewModelScope.launch {
+            val tt = repository.getTodayTotal()
+            val wt = repository.getWeeklyTotal()
+            _uiState.update { it.copy(todayTotal = tt, weeklyTotal = wt) }
+        }
+    }
+
+    private fun selectReportPeriod(period: ReportPeriod) {
+        val report = ReportBuilder.buildReport(
+            expenses = _uiState.value.recentExpenses,
+            period = period,
+            weekStartDayIso = _uiState.value.weekStartDay
+        )
+        _uiState.update { it.copy(selectedReportPeriod = period, reportData = report) }
+    }
+
+    private fun exportExcelReport() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isExportingReport = true, exportErrorMessage = null) }
+            try {
+                val report = _uiState.value.reportData ?: ReportBuilder.buildReport(
+                    _uiState.value.recentExpenses,
+                    _uiState.value.selectedReportPeriod,
+                    _uiState.value.weekStartDay
+                )
+                val bytes = XlsxWriter.write(report)
+                val fileName = "raqeem_report_${report.generatedDateFormatted}.xlsx"
+                val path = writeExportFileToCache(fileName, bytes)
+                _uiState.update {
+                    it.copy(
+                        isExportingReport = false,
+                        exportSuccessPath = path,
+                        exportSuccessName = fileName,
+                        exportSuccessSize = bytes.size.toLong(),
+                        exportMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                }
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+                _effects.emit(ExpenseEffect.ShowMessage("تم تجهيز ملف Excel بنجاح", MessageKind.SUCCESS))
+            } catch (_: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isExportingReport = false,
+                        exportErrorMessage = "تعذر إنشاء ملف Excel، يرجى المحاولة لاحقاً"
+                    )
+                }
+                _effects.emit(ExpenseEffect.ShowMessage("تعذر إنشاء ملف Excel", MessageKind.ERROR))
+            }
+        }
+    }
+
+    private fun exportPdfReport() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isExportingReport = true, exportErrorMessage = null) }
+            try {
+                val report = _uiState.value.reportData ?: ReportBuilder.buildReport(
+                    _uiState.value.recentExpenses,
+                    _uiState.value.selectedReportPeriod,
+                    _uiState.value.weekStartDay
+                )
+                val writer = PdfReportWriter()
+                val bytes = writer.generatePdf(report)
+                if (bytes != null && bytes.isNotEmpty()) {
+                    val fileName = "raqeem_report_${report.generatedDateFormatted}.pdf"
+                    val path = writeExportFileToCache(fileName, bytes)
+                    _uiState.update {
+                        it.copy(
+                            isExportingReport = false,
+                            exportSuccessPath = path,
+                            exportSuccessName = fileName,
+                            exportSuccessSize = bytes.size.toLong(),
+                            exportMimeType = "application/pdf"
+                        )
+                    }
+                    _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+                    _effects.emit(ExpenseEffect.ShowMessage("تم تجهيز ملف PDF بنجاح", MessageKind.SUCCESS))
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isExportingReport = false,
+                            exportErrorMessage = "تصدير PDF غير مدعوم على هذا النظام"
+                        )
+                    }
+                    _effects.emit(ExpenseEffect.ShowMessage("تصدير PDF غير متاح حالياً", MessageKind.ERROR))
+                }
+            } catch (_: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isExportingReport = false,
+                        exportErrorMessage = "تعذر إنشاء ملف PDF، يرجى المحاولة لاحقاً"
+                    )
+                }
+                _effects.emit(ExpenseEffect.ShowMessage("تعذر إنشاء ملف PDF", MessageKind.ERROR))
+            }
+        }
+    }
+
+    private fun dismissExportResult() {
+        _uiState.update {
+            it.copy(
+                exportSuccessPath = null,
+                exportSuccessName = null,
+                exportSuccessSize = 0L,
+                exportMimeType = null,
+                exportErrorMessage = null
             )
         }
     }

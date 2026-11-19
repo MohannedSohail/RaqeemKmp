@@ -17,6 +17,7 @@ import org.mohtech.app.ai.whisper.FakeTranscriber
 import org.mohtech.app.ai.whisper.SpeechError
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
+import org.mohtech.app.data.model.Payer
 import org.mohtech.app.data.model.ProofType
 import org.mohtech.app.data.repository.LocalExpenseRepository
 import org.mohtech.app.data.storage.AppPreferences
@@ -56,7 +57,7 @@ class FakePlatformExpenseStorage : PlatformExpenseStorage {
 class FakeAppPreferences : AppPreferences {
     private var onboardingDone = false
     private var currency = "₪"
-    private var weeklyBudget = 2500.0
+    private var weeklyBudget = 0.0
 
     override fun isOnboardingCompleted(): Boolean = onboardingDone
     override fun setOnboardingCompleted(completed: Boolean) { onboardingDone = completed }
@@ -814,5 +815,144 @@ class ExpenseViewModelTest {
         val state = whisperVm.uiState.value
         assertFalse(state.showPermissionRationaleDialog, "showPermissionRationaleDialog must be dismissed")
         assertFalse(state.showPermissionRationaleSheet, "showPermissionRationaleSheet must be dismissed")
+    }
+
+    @Test
+    fun testRequestDeleteRequiresConfirmationAndDismissalLeavesListIntact() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        viewModel.handleIntent(ExpenseIntent.ParseManualSpeechText("بنزين ب 50 شيكل"))
+        advanceUntilIdle()
+        val batch = viewModel.uiState.value.reviewSheetPendingBatch!!
+        viewModel.handleIntent(ExpenseIntent.ConfirmBatch(batch))
+        advanceUntilIdle()
+
+        val item = viewModel.uiState.value.recentExpenses.first()
+
+        // 1. Request delete -> item remains until confirmed
+        viewModel.handleIntent(ExpenseIntent.RequestDelete(item))
+        advanceUntilIdle()
+        assertEquals(CardAction.Delete(item), viewModel.uiState.value.pendingCardAction)
+        assertEquals(1, viewModel.uiState.value.recentExpenses.size)
+
+        // 2. Dismiss -> action cancelled, item remains
+        viewModel.handleIntent(ExpenseIntent.DismissPendingAction)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.pendingCardAction)
+        assertEquals(1, viewModel.uiState.value.recentExpenses.size)
+
+        // 3. Confirm -> action executed
+        viewModel.handleIntent(ExpenseIntent.RequestDelete(item))
+        advanceUntilIdle()
+        viewModel.handleIntent(ExpenseIntent.ConfirmPendingAction)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.pendingCardAction)
+        assertEquals(0, viewModel.uiState.value.recentExpenses.size)
+    }
+
+    @Test
+    fun testRepeatExpenseGeneratesNewUniqueIdAndPreservesFields() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        val originalItem = ExpenseItem(
+            id = "exp_orig_01",
+            title = "قهوة وحلا",
+            amount = 35.0,
+            currency = "₪",
+            category = ExpenseCategory.DINING,
+            timestamp = 1000000L,
+            payer = Payer("u1", "أنا", true)
+        )
+        repository.saveExpense(originalItem)
+        advanceUntilIdle()
+
+        viewModel.handleIntent(ExpenseIntent.RepeatExpense(originalItem))
+        advanceUntilIdle()
+
+        val list = viewModel.uiState.value.recentExpenses
+        assertEquals(2, list.size)
+        val repeated = list.first { it.id != originalItem.id }
+
+        assertTrue(repeated.id.isNotBlank() && repeated.id != originalItem.id)
+        assertTrue(repeated.timestamp >= originalItem.timestamp)
+        assertEquals(originalItem.title, repeated.title)
+        assertEquals(originalItem.amount, repeated.amount)
+        assertEquals(originalItem.currency, repeated.currency)
+        assertEquals(originalItem.category, repeated.category)
+        assertEquals(originalItem.payer, repeated.payer)
+    }
+
+    @Test
+    fun testDeleteThenUndoCycleAndConsecutiveDeletes() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        val itemA = ExpenseItem(id = "item_A", title = "بنزين", amount = 50.0, currency = "₪", category = ExpenseCategory.TRANSPORT, timestamp = 2000L)
+        val itemB = ExpenseItem(id = "item_B", title = "قهوة", amount = 10.0, currency = "₪", category = ExpenseCategory.DINING, timestamp = 1000L)
+        repository.saveExpense(itemB)
+        repository.saveExpense(itemA)
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.uiState.value.recentExpenses.size)
+
+        // Delete item A
+        viewModel.handleIntent(ExpenseIntent.DeleteExpense(itemA.id))
+        advanceUntilIdle()
+        assertEquals(1, viewModel.uiState.value.recentExpenses.size)
+
+        // Undo -> restores item A
+        viewModel.handleIntent(ExpenseIntent.UndoLast)
+        advanceUntilIdle()
+        assertEquals(2, viewModel.uiState.value.recentExpenses.size)
+        assertTrue(viewModel.uiState.value.recentExpenses.any { it.id == itemA.id })
+
+        // Consecutive deletes: delete A then delete B
+        viewModel.handleIntent(ExpenseIntent.DeleteExpense(itemA.id))
+        advanceUntilIdle()
+        viewModel.handleIntent(ExpenseIntent.DeleteExpense(itemB.id))
+        advanceUntilIdle()
+        assertEquals(0, viewModel.uiState.value.recentExpenses.size)
+
+        // Undo restores only the last operation (item B)
+        viewModel.handleIntent(ExpenseIntent.UndoLast)
+        advanceUntilIdle()
+        assertEquals(1, viewModel.uiState.value.recentExpenses.size)
+        assertEquals(itemB.id, viewModel.uiState.value.recentExpenses.first().id)
+    }
+
+    @Test
+    fun testChangeCategorySupportsUndo() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        val item = ExpenseItem(id = "item_cat", title = "شراء دواء", amount = 40.0, currency = "₪", category = ExpenseCategory.GENERAL, timestamp = 3000L)
+        repository.saveExpense(item)
+        advanceUntilIdle()
+
+        // Change category to HEALTH
+        viewModel.handleIntent(ExpenseIntent.ChangeCategory(item, ExpenseCategory.HEALTH))
+        advanceUntilIdle()
+        assertEquals(ExpenseCategory.HEALTH, viewModel.uiState.value.recentExpenses.first().category)
+
+        // Undo restores previous category GENERAL
+        viewModel.handleIntent(ExpenseIntent.UndoLast)
+        advanceUntilIdle()
+        assertEquals(ExpenseCategory.GENERAL, viewModel.uiState.value.recentExpenses.first().category)
+    }
+
+    @Test
+    fun testExportExcelReportWorkflow() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        val item = ExpenseItem(id = "item_exp", title = "سوبرماركت", amount = 85.0, currency = "₪", category = ExpenseCategory.GROCERIES, timestamp = 4000L)
+        repository.saveExpense(item)
+        advanceUntilIdle()
+
+        viewModel.handleIntent(ExpenseIntent.ExportExcelReport)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.isExportingReport)
+        assertNotNull(state.exportSuccessPath)
+        assertTrue(state.exportSuccessSize > 0L)
+        assertTrue(state.exportSuccessName?.endsWith(".xlsx") == true)
+        assertEquals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", state.exportMimeType)
+
+        viewModel.handleIntent(ExpenseIntent.DismissExportResult)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.exportSuccessPath)
     }
 }
