@@ -40,18 +40,13 @@ class SplashOnboardingStateMachineTest {
     @Test
     fun testSplashTransitionsToOnboardingWhenFirstLaunch() {
         val preferences = InMemoryPreferences(onboardingCompleted = false)
-        var currentDestination = AppDestination.SPLASH
+        val navState = org.mohtech.app.AppNavigationState()
 
-        // Simulate onSplashFinished callback logic from App.kt
-        if (preferences.isOnboardingCompleted()) {
-            currentDestination = AppDestination.DASHBOARD
-        } else {
-            currentDestination = AppDestination.ONBOARDING
-        }
+        navState.onSplashFinished(preferences)
 
         assertEquals(
             AppDestination.ONBOARDING,
-            currentDestination,
+            navState.currentDestination,
             "First-launch app must transition from SPLASH to ONBOARDING"
         )
     }
@@ -59,18 +54,13 @@ class SplashOnboardingStateMachineTest {
     @Test
     fun testSplashTransitionsToDashboardWhenOnboardingAlreadyCompleted() {
         val preferences = InMemoryPreferences(onboardingCompleted = true)
-        var currentDestination = AppDestination.SPLASH
+        val navState = org.mohtech.app.AppNavigationState()
 
-        // Simulate onSplashFinished callback logic from App.kt
-        if (preferences.isOnboardingCompleted()) {
-            currentDestination = AppDestination.DASHBOARD
-        } else {
-            currentDestination = AppDestination.ONBOARDING
-        }
+        navState.onSplashFinished(preferences)
 
         assertEquals(
             AppDestination.DASHBOARD,
-            currentDestination,
+            navState.currentDestination,
             "Returning user who completed onboarding must transition directly from SPLASH to DASHBOARD"
         )
     }
@@ -78,13 +68,14 @@ class SplashOnboardingStateMachineTest {
     @Test
     fun testCompleteOnboardingTransitionsToDashboard() {
         val preferences = InMemoryPreferences(onboardingCompleted = false)
-        var currentDestination = AppDestination.ONBOARDING
+        val navState = org.mohtech.app.AppNavigationState(
+            initialDestination = AppDestination.ONBOARDING,
+            initialSplashShown = true
+        )
 
-        // Simulate onComplete callback logic from App.kt
-        preferences.setOnboardingCompleted(true)
-        currentDestination = AppDestination.DASHBOARD
+        navState.onOnboardingComplete(preferences)
 
-        assertEquals(AppDestination.DASHBOARD, currentDestination)
+        assertEquals(AppDestination.DASHBOARD, navState.currentDestination)
         assertTrue(preferences.isOnboardingCompleted(), "Preferences must persist completed onboarding state")
     }
 

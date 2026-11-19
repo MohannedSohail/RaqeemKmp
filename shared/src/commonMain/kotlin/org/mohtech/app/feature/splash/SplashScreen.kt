@@ -1,10 +1,10 @@
 package org.mohtech.app.feature.splash
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -42,25 +43,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import org.mohtech.app.core.theme.RaqeemColors
 
 /**
  * Raqeem (رقيم) Interactive Splash Screen
  *
  * UnSlop & Quiet Luxury Fintech design:
- * - Precision Arabic "ر" seal with hairline emerald contour.
- * - Dual concentric acoustic ripple micro-interactions + subtle equalizer bars.
- * - Tap-to-continue or 1.2s timeout.
+ * - Single Emerald Green accent (no competing cyan clashing).
+ * - Single Animatable progress driver (0..1 over 1600ms).
+ * - Full-word Arabic typography reveal (preserves cursive ligatures).
+ * - Landscape-adaptive layout with BoxWithConstraints.
+ * - Tap-to-continue or 1.6s auto-completion.
  * - Safe area compliance (statusBarsPadding, navigationBarsPadding).
  */
 @Composable
 fun SplashScreen(
     onSplashFinished: () -> Unit,
     modifier: Modifier = Modifier,
-    displayDurationMillis: Long = 1200L
+    displayDurationMillis: Long = 1600L
 ) {
-    var startAnimation by remember { mutableStateOf(false) }
     var hasFinished by remember { mutableStateOf(false) }
 
     fun triggerFinish() {
@@ -70,79 +71,50 @@ fun SplashScreen(
         }
     }
 
-    val sealScale by animateFloatAsState(
-        targetValue = if (startAnimation) 1.0f else 0.85f,
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-        label = "sealScale"
-    )
-
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (startAnimation) 1.0f else 0.0f,
-        animationSpec = tween(durationMillis = 550, easing = FastOutSlowInEasing),
-        label = "contentAlpha"
-    )
-
-    // Acoustic wave infinite transitions
-    val infiniteTransition = rememberInfiniteTransition(label = "acousticWave")
-
-    // Ripple 1
-    val waveScale1 by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = 1.36f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "waveScale1"
-    )
-    val waveAlpha1 by infiniteTransition.animateFloat(
-        initialValue = 0.40f,
-        targetValue = 0.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1600, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "waveAlpha1"
-    )
-
-    // Ripple 2 (out of phase)
-    val waveScale2 by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = 1.62f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1600, delayMillis = 400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "waveScale2"
-    )
-    val waveAlpha2 by infiniteTransition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 0.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1600, delayMillis = 400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "waveAlpha2"
-    )
-
-    // Offline dot pulse
-    val dotAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dotAlpha"
-    )
+    // Unified animation driver
+    val animProgress = remember { Animatable(0f) }
 
     LaunchedEffect(Unit) {
-        startAnimation = true
-        delay(displayDurationMillis)
+        animProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = displayDurationMillis.toInt(),
+                easing = FastOutSlowInEasing
+            )
+        )
         triggerFinish()
     }
 
-    Box(
+    val progress = animProgress.value
+
+    // Derived animation phases
+    val sealScale = (0.82f + 0.18f * (progress / 0.45f).coerceIn(0f, 1f))
+    val sealAlpha = (progress / 0.35f).coerceIn(0f, 1f)
+    val textAlpha = ((progress - 0.25f) / 0.4f).coerceIn(0f, 1f)
+    val badgeAlpha = ((progress - 0.5f) / 0.4f).coerceIn(0f, 1f)
+
+    // Pulse wave micro-interaction
+    val infiniteTransition = rememberInfiniteTransition(label = "splashPulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.28f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseScale"
+    )
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.30f,
+        targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseAlpha"
+    )
+
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(RaqeemColors.BackgroundSlate)
@@ -152,141 +124,214 @@ fun SplashScreen(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = { triggerFinish() }
-            ),
-        contentAlignment = Alignment.Center
+            )
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(horizontal = 24.dp)
-        ) {
-            // Brand Seal with Acoustic Wave micro-interaction
-            Box(
+        val isLandscape = maxWidth > maxHeight
+
+        if (isLandscape) {
+            // Adaptive Landscape layout: Side-by-side Brand Seal and Typography
+            Row(
                 modifier = Modifier
-                    .scale(sealScale)
-                    .alpha(contentAlpha),
-                contentAlignment = Alignment.Center
+                    .fillMaxSize()
+                    .padding(horizontal = 48.dp, vertical = 24.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Secondary outer acoustic ring
-                Box(
-                    modifier = Modifier
-                        .size(86.dp)
-                        .scale(waveScale2)
-                        .clip(RoundedCornerShape(30.dp))
-                        .border(
-                            1.dp,
-                            RaqeemColors.ElectricCyan.copy(alpha = waveAlpha2),
-                            RoundedCornerShape(30.dp)
-                        )
+                // Brand Emblem
+                BrandSeal(
+                    sealScale = sealScale,
+                    sealAlpha = sealAlpha,
+                    pulseScale = pulseScale,
+                    pulseAlpha = pulseAlpha
                 )
 
-                // Primary inner acoustic ring
-                Box(
-                    modifier = Modifier
-                        .size(86.dp)
-                        .scale(waveScale1)
-                        .clip(RoundedCornerShape(28.dp))
-                        .border(
-                            1.2.dp,
-                            RaqeemColors.EmeraldGreen.copy(alpha = waveAlpha1),
-                            RoundedCornerShape(28.dp)
-                        )
-                )
+                Spacer(modifier = Modifier.width(36.dp))
 
-                // Elevated Brand Seal Squircle
-                Box(
-                    modifier = Modifier
-                        .size(86.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(RaqeemColors.SurfaceElevated)
-                        .border(
-                            1.5.dp,
-                            RaqeemColors.EmeraldGreen.copy(alpha = 0.45f),
-                            RoundedCornerShape(24.dp)
-                        ),
-                    contentAlignment = Alignment.Center
+                Column(
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.Start
                 ) {
                     Text(
-                        text = "ر",
-                        color = RaqeemColors.EmeraldGreen,
-                        fontSize = 46.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "رقيم",
+                        color = RaqeemColors.TextPrimary,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 42.sp,
+                        modifier = Modifier.alpha(textAlpha)
                     )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    AcousticWaveformBars(
+                        modifier = Modifier
+                            .alpha(textAlpha)
+                            .padding(vertical = 4.dp),
+                        settledProgress = progress
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "ذكاء المصاريف بالصوت • محلي 100%",
+                        color = RaqeemColors.TextSecondary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Normal,
+                        modifier = Modifier.alpha(badgeAlpha)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OfflineStatusChip(modifier = Modifier.alpha(badgeAlpha))
                 }
             }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // App Name
-            Text(
-                text = "رقيم",
-                color = RaqeemColors.TextPrimary,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 40.sp,
-                modifier = Modifier.alpha(contentAlpha)
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Acoustic Wave Micro-visualizer
-            AcousticWaveformBars(
+        } else {
+            // Portrait Layout: Vertical Harmony
+            Column(
                 modifier = Modifier
-                    .alpha(contentAlpha)
-                    .padding(vertical = 4.dp)
-            )
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Spacer(modifier = Modifier.weight(1f))
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Subtitle
-            Text(
-                text = "ذكاء المصاريف بالصوت • محلي 100%",
-                color = RaqeemColors.TextSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Normal,
-                modifier = Modifier.alpha(contentAlpha)
-            )
-        }
-
-        // Bottom Offline Status Badge
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 28.dp)
-                .alpha(contentAlpha)
-                .clip(RoundedCornerShape(20.dp))
-                .background(RaqeemColors.SurfaceElevated)
-                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .alpha(dotAlpha)
-                        .clip(CircleShape)
-                        .background(RaqeemColors.EmeraldGreen)
+                BrandSeal(
+                    sealScale = sealScale,
+                    sealAlpha = sealAlpha,
+                    pulseScale = pulseScale,
+                    pulseAlpha = pulseAlpha
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+
+                Spacer(modifier = Modifier.height(28.dp))
+
                 Text(
-                    text = "دون إنترنت • سرية تامة",
-                    color = RaqeemColors.TextTertiary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
+                    text = "رقيم",
+                    color = RaqeemColors.TextPrimary,
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 44.sp,
+                    modifier = Modifier.alpha(textAlpha)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                AcousticWaveformBars(
+                    modifier = Modifier
+                        .alpha(textAlpha)
+                        .padding(vertical = 4.dp),
+                    settledProgress = progress
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "ذكاء المصاريف بالصوت • محلي 100%",
+                    color = RaqeemColors.TextSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Normal,
+                    modifier = Modifier.alpha(badgeAlpha)
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                OfflineStatusChip(
+                    modifier = Modifier
+                        .alpha(badgeAlpha)
+                        .padding(bottom = 28.dp)
                 )
             }
         }
     }
 }
 
+@Composable
+private fun BrandSeal(
+    sealScale: Float,
+    sealAlpha: Float,
+    pulseScale: Float,
+    pulseAlpha: Float,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .scale(sealScale)
+            .alpha(sealAlpha),
+        contentAlignment = Alignment.Center
+    ) {
+        // Subtle emerald pulse ring
+        Box(
+            modifier = Modifier
+                .size(88.dp)
+                .scale(pulseScale)
+                .clip(RoundedCornerShape(30.dp))
+                .border(
+                    1.dp,
+                    RaqeemColors.EmeraldGreen.copy(alpha = pulseAlpha * sealAlpha),
+                    RoundedCornerShape(30.dp)
+                )
+        )
+
+        // Precision Seal Squircle
+        Box(
+            modifier = Modifier
+                .size(88.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(RaqeemColors.SurfaceElevated)
+                .border(
+                    1.5.dp,
+                    RaqeemColors.EmeraldGreen.copy(alpha = 0.55f),
+                    RoundedCornerShape(26.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "ر",
+                color = RaqeemColors.EmeraldGreen,
+                fontSize = 48.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun OfflineStatusChip(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(RaqeemColors.SurfaceElevated)
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(RaqeemColors.EmeraldGreen)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "دون إنترنت • سرية تامة",
+                color = RaqeemColors.TextTertiary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
 /**
- * Subtle 5-bar equalizer micro-waveform representing audio readiness
+ * 5-bar acoustic visualizer with settled progress damping
  */
 @Composable
 private fun AcousticWaveformBars(
+    settledProgress: Float,
     modifier: Modifier = Modifier
 ) {
-    val transition = rememberInfiniteTransition(label = "waveform")
+    val transition = rememberInfiniteTransition(label = "waveformBars")
 
     val h1 by transition.animateFloat(
         initialValue = 4f,
@@ -334,19 +379,26 @@ private fun AcousticWaveformBars(
         label = "h5"
     )
 
+    val settleMultiplier = if (settledProgress > 0.8f) {
+        (1f - (settledProgress - 0.8f) / 0.2f).coerceIn(0.4f, 1f)
+    } else {
+        1f
+    }
+
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        listOf(h1, h2, h3, h4, h5).forEachIndexed { index, heightDp ->
-            val barColor = if (index % 2 == 0) RaqeemColors.EmeraldGreen else RaqeemColors.ElectricCyan
+        listOf(h1, h2, h3, h4, h5).forEachIndexed { index, heightVal ->
+            val effectiveHeight = (heightVal * settleMultiplier).coerceAtLeast(3f)
+            val barAlpha = if (index == 2) 0.95f else 0.7f
             Box(
                 modifier = Modifier
                     .width(3.dp)
-                    .height(heightDp.dp)
+                    .height(effectiveHeight.dp)
                     .clip(RoundedCornerShape(1.5.dp))
-                    .background(barColor.copy(alpha = 0.7f))
+                    .background(RaqeemColors.EmeraldGreen.copy(alpha = barAlpha))
             )
         }
     }

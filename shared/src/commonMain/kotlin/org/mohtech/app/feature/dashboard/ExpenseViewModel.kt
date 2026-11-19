@@ -34,10 +34,13 @@ class ExpenseViewModel(
     private val audioRecorder: RawAudioRecorder? = null
 ) : ViewModel() {
 
+    private var processingJob: kotlinx.coroutines.Job? = null
+
     private val _uiState = MutableStateFlow(
         ExpenseUiState(
             activeCurrency = preferences.getPreferredCurrency(),
             isOnboardingDone = preferences.isOnboardingCompleted(),
+            weeklyBudget = preferences.getWeeklyBudget(),
             isHardwareSpeechAvailable = voiceEngine?.isAvailable() ?: false
         )
     )
@@ -55,6 +58,8 @@ class ExpenseViewModel(
             is ExpenseIntent.LoadInitialData -> loadInitialData()
             is ExpenseIntent.CheckPermissionsAndStartRecord -> startRecording()
             is ExpenseIntent.StopRecording -> stopRecording()
+            is ExpenseIntent.CancelProcessing -> cancelProcessing()
+            is ExpenseIntent.FinishProcessingReady -> finishProcessingReady()
             is ExpenseIntent.UpdateAmplitude -> updateAmplitude(intent.amplitude)
             is ExpenseIntent.ParseManualSpeechText -> parseManualSpeechText(intent.rawText)
             is ExpenseIntent.ParseBankSms -> parseBankSms(intent.smsBody)
@@ -62,6 +67,7 @@ class ExpenseViewModel(
             is ExpenseIntent.DeleteExpense -> deleteExpense(intent.expenseId)
             is ExpenseIntent.EditExpense -> editExpense(intent.item)
             is ExpenseIntent.FilterByCategory -> filterByCategory(intent.category)
+            is ExpenseIntent.UpdateWeeklyBudget -> updateWeeklyBudget(intent.budget)
             is ExpenseIntent.OpenManualSheet -> openManualSheet()
             is ExpenseIntent.DismissReviewSheet -> dismissReviewSheet()
             is ExpenseIntent.DismissFallbackSheet -> dismissFallbackSheet()
@@ -93,6 +99,7 @@ class ExpenseViewModel(
                         filteredExpenses = filtered,
                         todayTotal = todayTotal,
                         weeklyTotal = weeklyTotal,
+                        weeklyBudget = preferences.getWeeklyBudget(),
                         activeCurrency = preferences.getPreferredCurrency(),
                         isOnboardingDone = preferences.isOnboardingCompleted(),
                         isHardwareSpeechAvailable = voiceEngine?.isAvailable() ?: false
@@ -169,8 +176,11 @@ class ExpenseViewModel(
                 onResult = { text ->
                     _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
                     if (text.isNotBlank()) {
+                        _uiState.update { it.copy(processingStage = ProcessingStage.UNDERSTANDING) }
                         parseManualSpeechText(text)
+                        _uiState.update { it.copy(processingStage = ProcessingStage.READY) }
                     } else {
+                        _uiState.update { it.copy(processingStage = ProcessingStage.IDLE) }
                         viewModelScope.launch {
                             _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
                         }
@@ -222,6 +232,23 @@ class ExpenseViewModel(
         }
     }
 
+    private fun cancelProcessing() {
+        processingJob?.cancel()
+        processingJob = null
+        _uiState.update {
+            it.copy(
+                isRecording = false,
+                recordingAmplitude = 0f,
+                processingStage = ProcessingStage.IDLE
+            )
+        }
+    }
+
+    private fun updateWeeklyBudget(budget: Double) {
+        preferences.setWeeklyBudget(budget)
+        _uiState.update { it.copy(weeklyBudget = budget) }
+    }
+
     private fun stopRecording() {
         if (!_uiState.value.isRecording) return
         _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
@@ -229,7 +256,12 @@ class ExpenseViewModel(
         if (audioRecorder != null) {
             val pcm = audioRecorder.stopRecording()
             if (pcm == null) {
-                _uiState.update { it.copy(userErrorMessage = "تعذر استرجاع التسجيل الصوتي") }
+                _uiState.update {
+                    it.copy(
+                        processingStage = ProcessingStage.IDLE,
+                        userErrorMessage = "تعذر استرجاع التسجيل الصوتي"
+                    )
+                }
                 viewModelScope.launch {
                     _effects.emit(ExpenseEffect.ShowToast("تعذر استرجاع التسجيل الصوتي"))
                 }
@@ -237,12 +269,32 @@ class ExpenseViewModel(
             }
 
             if (transcriber != null) {
-                viewModelScope.launch {
-                    val result = transcriber.transcribe(pcm, WhisperModelConfig(language = "ar"))
+                processingJob?.cancel()
+                processingJob = viewModelScope.launch {
+                    _uiState.update { it.copy(processingStage = ProcessingStage.FINALIZING_AUDIO) }
+                    _uiState.update { it.copy(processingStage = ProcessingStage.TRANSCRIBING) }
+
+                    val result = transcriber.transcribe(
+                        pcm,
+                        WhisperModelConfig(language = "ar", translate = false)
+                    )
                     when (result) {
                         is TranscribeResult.Success -> {
                             if (result.text.isNotBlank()) {
-                                parseManualSpeechText(result.text)
+                                _uiState.update { it.copy(processingStage = ProcessingStage.UNDERSTANDING) }
+                                val now = Clock.System.now().toEpochMilliseconds()
+                                val batch = parser.parseSpokenText(
+                                    spokenText = result.text,
+                                    defaultCurrency = _uiState.value.activeCurrency,
+                                    currentTimestamp = now
+                                )
+                                _uiState.update {
+                                    it.copy(
+                                        processingStage = ProcessingStage.READY,
+                                        reviewSheetPendingBatch = batch,
+                                        showFallbackManualSheet = false
+                                    )
+                                }
                             } else {
                                 handleSpeechError(SpeechError.EmptyResult)
                             }
@@ -256,11 +308,20 @@ class ExpenseViewModel(
             return
         }
 
-        voiceEngine?.stopListening()
+        if (voiceEngine != null) {
+            _uiState.update { it.copy(processingStage = ProcessingStage.FINALIZING_AUDIO) }
+            voiceEngine.stopListening()
+        }
     }
 
     private fun handleSpeechError(error: SpeechError) {
-        _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+        _uiState.update {
+            it.copy(
+                isRecording = false,
+                recordingAmplitude = 0f,
+                processingStage = ProcessingStage.IDLE
+            )
+        }
         when (error) {
             is SpeechError.PermissionDenied -> {
                 _uiState.update {
@@ -375,10 +436,19 @@ class ExpenseViewModel(
         }
     }
 
+    private fun finishProcessingReady() {
+        _uiState.update { it.copy(processingStage = ProcessingStage.IDLE) }
+    }
+
     private fun confirmBatch(batch: ExpenseBatch) {
         viewModelScope.launch {
             repository.saveBatch(batch)
-            _uiState.update { it.copy(reviewSheetPendingBatch = null) }
+            _uiState.update {
+                it.copy(
+                    reviewSheetPendingBatch = null,
+                    processingStage = ProcessingStage.IDLE
+                )
+            }
             _effects.emit(ExpenseEffect.TriggerHapticFeedback)
             _effects.emit(ExpenseEffect.ShowToast("تم تسجيل المصروف بنجاح"))
         }
@@ -424,7 +494,12 @@ class ExpenseViewModel(
     }
 
     private fun dismissReviewSheet() {
-        _uiState.update { it.copy(reviewSheetPendingBatch = null) }
+        _uiState.update {
+            it.copy(
+                reviewSheetPendingBatch = null,
+                processingStage = ProcessingStage.IDLE
+            )
+        }
     }
 
     private fun dismissFallbackSheet() {

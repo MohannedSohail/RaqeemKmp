@@ -200,8 +200,13 @@ class AndroidLocalSpeechTranscriber(
         contextPtr: Long,
         numThreads: Int,
         pcm: FloatArray,
-        language: String
+        prompt: String,
+        language: String,
+        translate: Boolean
     ): String
+
+    private var activeContextPtr: Long = 0L
+    private val contextLock = Any()
 
     private fun getModelFile(fileName: String): File? {
         val appContext = context ?: AndroidContextHolder.context ?: return null
@@ -213,7 +218,7 @@ class AndroidLocalSpeechTranscriber(
         if (candidate.exists() && candidate.isFile && candidate.length() > 1000) return candidate
 
         // Auto-extract model bundled inside APK assets (for Google Play distribution)
-        val assetPaths = listOf("models/$fileName", fileName)
+        val assetPaths = listOf("models/$fileName", fileName, "models/ggml-tiny.bin", "ggml-tiny.bin")
         for (assetPath in assetPaths) {
             try {
                 val tempFile = File(modelsDir, "$fileName.tmp")
@@ -246,15 +251,30 @@ class AndroidLocalSpeechTranscriber(
 
     override fun isModelReady(): Boolean {
         if (!isNativeLibraryLoaded) return false
-        val modelFile = getModelFile("ggml-tiny.bin")
-        return modelFile != null && modelFile.exists()
+        val appContext = context ?: AndroidContextHolder.context ?: return false
+        val modelsDir = File(appContext.filesDir, "models")
+        val candidateQ5 = File(modelsDir, "ggml-tiny-q5_1.bin")
+        val candidateTiny = File(modelsDir, "ggml-tiny.bin")
+        if ((candidateQ5.exists() && candidateQ5.length() > 1000) ||
+            (candidateTiny.exists() && candidateTiny.length() > 1000)
+        ) {
+            return true
+        }
+
+        return try {
+            val assetsList = appContext.assets.list("models") ?: emptyArray()
+            assetsList.contains("ggml-tiny-q5_1.bin") || assetsList.contains("ggml-tiny.bin")
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     override fun getInstalledModels(): List<InstalledModel> {
-        val defaultModel = "ggml-tiny.bin"
-        val modelFile = getModelFile(defaultModel)
-        val isInstalled = modelFile != null && modelFile.exists()
-        val size = if (isInstalled && modelFile != null) modelFile.length() else 75_000_000L
+        val defaultModel = "ggml-tiny-q5_1.bin"
+        val appContext = context ?: AndroidContextHolder.context
+        val modelFile = appContext?.let { File(File(it.filesDir, "models"), defaultModel) }
+        val isInstalled = modelFile != null && modelFile.exists() && modelFile.length() > 1000
+        val size = if (isInstalled && modelFile != null) modelFile.length() else 31_000_000L
         return listOf(
             InstalledModel(
                 id = "tiny",
@@ -279,15 +299,22 @@ class AndroidLocalSpeechTranscriber(
             return@withContext TranscribeResult.Failure(SpeechError.ModelMissing)
         }
 
-        val modelFile = getModelFile(config.modelFileName)
+        val modelFile = withContext(Dispatchers.IO) {
+            getModelFile(config.modelFileName)
+        }
         if (modelFile == null || !modelFile.exists()) {
             return@withContext TranscribeResult.Failure(SpeechError.ModelMissing)
         }
 
-        var contextPtr = 0L
         try {
-            contextPtr = initModel(modelFile.absolutePath)
-            if (contextPtr == 0L) {
+            val ctxPtr = synchronized(contextLock) {
+                if (activeContextPtr == 0L) {
+                    activeContextPtr = initModel(modelFile.absolutePath)
+                }
+                activeContextPtr
+            }
+
+            if (ctxPtr == 0L) {
                 return@withContext TranscribeResult.Failure(SpeechError.ModelLoadFailed)
             }
 
@@ -299,10 +326,12 @@ class AndroidLocalSpeechTranscriber(
             for (chunk in chunks) {
                 val floatPcm = FloatArray(chunk.size) { i -> chunk[i].toFloat() / 32768.0f }
                 val segmentText = fullTranscribe(
-                    contextPtr = contextPtr,
+                    contextPtr = ctxPtr,
                     numThreads = config.numThreads,
                     pcm = floatPcm,
-                    language = config.language
+                    prompt = config.initialPrompt,
+                    language = config.language,
+                    translate = config.translate
                 )
                 if (segmentText.isNotBlank()) {
                     if (textBuilder.isNotEmpty()) textBuilder.append(" ")
@@ -322,18 +351,19 @@ class AndroidLocalSpeechTranscriber(
             TranscribeResult.Failure(SpeechError.OutOfMemory)
         } catch (_: Throwable) {
             TranscribeResult.Failure(SpeechError.TranscriptionFailed)
-        } finally {
-            if (contextPtr != 0L) {
-                try {
-                    freeModel(contextPtr)
-                } catch (_: Throwable) {
-                }
-            }
         }
     }
 
     override fun release() {
-        // Model context lifecycle is managed during transcribe
+        synchronized(contextLock) {
+            if (activeContextPtr != 0L) {
+                try {
+                    freeModel(activeContextPtr)
+                } catch (_: Throwable) {
+                }
+                activeContextPtr = 0L
+            }
+        }
     }
 }
 

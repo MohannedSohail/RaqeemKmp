@@ -344,5 +344,37 @@ object RaqeemIcons {
             drawPath(arrowHead, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
     }
+
+    @Composable
+    fun Edit(
+        modifier: Modifier = Modifier,
+        size: Dp = 16.dp,
+        tint: Color = RaqeemColors.ElectricCyan,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            val path = Path().apply {
+                moveTo(w * 0.20f, h * 0.80f)
+                lineTo(w * 0.22f, h * 0.65f)
+                lineTo(w * 0.68f, h * 0.19f)
+                lineTo(w * 0.81f, h * 0.32f)
+                lineTo(w * 0.35f, h * 0.78f)
+                close()
+            }
+            drawPath(path, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.20f, h * 0.80f),
+                end = Offset(w * 0.16f, h * 0.84f),
+                strokeWidth = sw,
+                cap = StrokeCap.Round
+            )
+        }
+    }
 }
 

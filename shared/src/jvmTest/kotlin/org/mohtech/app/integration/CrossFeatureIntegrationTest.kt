@@ -90,8 +90,9 @@ class CrossFeatureIntegrationTest {
         // Verify default config targets local file and does not contain remote network URLs
         assertFalse(config.modelFileName.startsWith("http://"), "Model file must not be a remote URL")
         assertFalse(config.modelFileName.startsWith("https://"), "Model file must not be a remote URL")
-        assertEquals("ggml-tiny.bin", config.modelFileName)
+        assertEquals("ggml-tiny-q5_1.bin", config.modelFileName)
         assertEquals("ar", config.language)
+        assertFalse(config.translate)
     }
 
     // -------------------------------------------------------------------------

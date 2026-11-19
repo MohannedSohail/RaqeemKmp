@@ -44,9 +44,12 @@ fun BudgetRadarCard(
     todayTotal: Double,
     weeklyTotal: Double,
     currency: String,
+    weeklyBudget: Double = 2500.0,
     modifier: Modifier = Modifier
 ) {
-    val progressRatio = if (weeklyTotal > 0.0) {
+    val progressRatio = if (weeklyBudget > 0.0) {
+        (weeklyTotal / weeklyBudget).toFloat().coerceIn(0.04f, 1.0f)
+    } else if (weeklyTotal > 0.0) {
         (todayTotal / weeklyTotal).toFloat().coerceIn(0.04f, 1.0f)
     } else {
         0.0f
@@ -99,7 +102,7 @@ fun BudgetRadarCard(
                     Text(
                         text = "محلي 100%",
                         color = RaqeemColors.TextTertiary,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -181,6 +184,28 @@ fun BudgetRadarCard(
                 trackColor = RaqeemColors.SurfaceElevated,
                 strokeCap = StrokeCap.Round
             )
+
+            if (weeklyBudget > 0.0) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val percent = ((weeklyTotal / weeklyBudget) * 100).toInt().coerceAtLeast(0)
+                    Text(
+                        text = "استهلاك الميزانية ($percent%)",
+                        color = RaqeemColors.TextTertiary,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "${if (weeklyBudget % 1.0 == 0.0) weeklyBudget.toInt() else weeklyBudget} $currency",
+                        color = RaqeemColors.TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
         }
     }
 }

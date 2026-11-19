@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +55,7 @@ import org.mohtech.app.core.ui.RaqeemIcons
 import org.mohtech.app.feature.dashboard.ExpenseEffect
 import org.mohtech.app.feature.dashboard.ExpenseIntent
 import org.mohtech.app.feature.dashboard.ExpenseViewModel
+import org.mohtech.app.feature.dashboard.ProcessingStage
 
 /**
  * Raqeem (رقيم) Main Dashboard Screen
@@ -74,7 +76,7 @@ fun DashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
-    var showExportSheet by remember { mutableStateOf(false) }
+    var showExportSheet by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
@@ -89,14 +91,6 @@ fun DashboardScreen(
                     snackbarHostState.showSnackbar(effect.message)
                 }
                 else -> {}
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            if (state.isRecording) {
-                viewModel.handleIntent(ExpenseIntent.StopRecording)
             }
         }
     }
@@ -136,10 +130,12 @@ fun DashboardScreen(
                     isRecording = state.isRecording,
                     amplitude = state.recordingAmplitude,
                     onRecordToggle = {
-                        if (state.isRecording) {
-                            viewModel.handleIntent(ExpenseIntent.StopRecording)
-                        } else {
-                            viewModel.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+                        if (!state.isProcessing) {
+                            if (state.isRecording) {
+                                viewModel.handleIntent(ExpenseIntent.StopRecording)
+                            } else {
+                                viewModel.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+                            }
                         }
                     }
                 )
@@ -159,6 +155,7 @@ fun DashboardScreen(
                 BudgetRadarCard(
                     todayTotal = state.todayTotal,
                     weeklyTotal = state.weeklyTotal,
+                    weeklyBudget = state.weeklyBudget,
                     currency = state.activeCurrency
                 )
             }
@@ -186,17 +183,32 @@ fun DashboardScreen(
             }
         }
 
+        // Voice Processing Overlay
+        VoiceProcessingOverlay(
+            stage = state.processingStage,
+            lastAmplitude = state.recordingAmplitude,
+            pendingBatch = state.reviewSheetPendingBatch,
+            onCancel = {
+                viewModel.handleIntent(ExpenseIntent.CancelProcessing)
+            },
+            onReadyFinished = {
+                viewModel.handleIntent(ExpenseIntent.FinishProcessingReady)
+            }
+        )
+
         // Review Sheet Overlay
         state.reviewSheetPendingBatch?.let { batch ->
-            ExpenseReviewSheet(
-                batch = batch,
-                onConfirm = { confirmedBatch ->
-                    viewModel.handleIntent(ExpenseIntent.ConfirmBatch(confirmedBatch))
-                },
-                onDismiss = {
-                    viewModel.handleIntent(ExpenseIntent.DismissReviewSheet)
-                }
-            )
+            if (state.processingStage == ProcessingStage.IDLE) {
+                ExpenseReviewSheet(
+                    batch = batch,
+                    onConfirm = { confirmedBatch ->
+                        viewModel.handleIntent(ExpenseIntent.ConfirmBatch(confirmedBatch))
+                    },
+                    onDismiss = {
+                        viewModel.handleIntent(ExpenseIntent.DismissReviewSheet)
+                    }
+                )
+            }
         }
 
         // Polite Fallback Sheet Overlay

@@ -21,6 +21,11 @@ actual object ProjectSourceInspector {
         for (dir in scanDirs) {
             if (dir.exists()) {
                 dir.walkTopDown()
+                    .filter { file ->
+                        val relPath = file.relativeTo(root).path.replace('\\', '/')
+                        val segments = relPath.split('/')
+                        !segments.contains("cpp")
+                    }
                     .filter { it.isFile }
                     .filter { it.extension in listOf("kt", "java") || it.name == "AndroidManifest.xml" }
                     .forEach { file ->

@@ -16,8 +16,9 @@ data class InstalledModel(
  * Configuration for an on-device Whisper transcription session.
  */
 data class WhisperModelConfig(
-    val modelFileName: String = "ggml-tiny.bin",
+    val modelFileName: String = "ggml-tiny-q5_1.bin",
     val language: String = "ar",
+    val translate: Boolean = false,
     val initialPrompt: String = "شيكل، ريال، جنيه، بنزين، قهوة، سوبرماركت، مطعم، دفعت، حاسبت، اشتريت",
     val numThreads: Int = 4
 )
@@ -53,6 +54,24 @@ interface LocalSpeechTranscriber {
     fun isModelReady(): Boolean
     fun getInstalledModels(): List<InstalledModel>
     fun release()
+}
+
+/**
+ * Abstraction for the native Whisper context and inference operations.
+ * Allows deterministic unit testing of context caching, argument passing, and clean resource release.
+ */
+interface WhisperNativeContextBridge {
+    fun isLoaded(): Boolean
+    fun loadContext(modelPath: String): Long
+    fun freeContext(contextPtr: Long)
+    fun fullTranscribe(
+        contextPtr: Long,
+        numThreads: Int,
+        pcm: FloatArray,
+        language: String,
+        translate: Boolean,
+        initialPrompt: String
+    ): String
 }
 
 /**

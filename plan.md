@@ -10,11 +10,11 @@
 ## 🏗️ 0. حسم قرار ربط Whisper JNI مع نظام البناء (Build & JNI Decision)
 
 * **القرار المعماري المعتمد:**
-  بناء مكتبات `libwhisper.so` و`libwhisper_jni.so` لمعمارية `arm64-v8a` ووضعها في `androidApp/src/main/jniLibs/arm64-v8a/` مع واجهات JNI محكمة في `shared/src/androidMain/`.
+  بناء مكتبة `libwhisper.so` لمعمارية `arm64-v8a` مباشرة من المصدر عبر **CMake & externalNativeBuild** في وحدة `androidApp`، باستخدام مستودع `whisper.cpp` كـ **Git submodule** مثبت على الوسم المستقر `v1.7.4` (commit `8a9ad784`) مع NDK `30.0.16248370`.
 * **السبب:**
-  يضمن التوافق المطلق مع Gradle وAmper دون الاعتماد على مسارات NDK الخارجية في بيئة البناء، ويمنع أي تعطل أثناء تجميع التطبيق (`assembleDebug`).
+  استبدال ملفات `.so` الثابتة بالبناء الآلي المباشر يضمن قابلية التكرار (Reproducible Builds) والاتساق مع CI/CD وR8 Proguard، ودمج كود JNI ومكتبة Whisper في مكتبة مشتركة واحدة محسنة بحجم مصغر (~1.1 MB).
 * **إثبات الجدوى (PoC):**
-  التحقق من قدرة مكتبة JNI وغلاف Kotlin على تحميل النموذج من `filesDir` ومعالجة مصفوفة `ShortArray` صوتية وإرجاع نص عربي.
+  التحقق من ترجمة C++ عبر CMake بنجاح وإنتاج AAB بحجم ~35.3 MB وتمرير كافة الاختبارات دون أخطاء.
 
 ---
 
@@ -90,10 +90,11 @@
 
 ### المرحلة 4: التنقيح، والتدقيق، والتوثيق (Refactor & Review)
 - [x] **تشغيل حزمة الاختبارات الشاملة:**
-  - تنفيذ `.\gradlew.bat :shared:jvmTest` — 126 اختباراً ناجحاً بنسبة 100% (0 فشل).
+  - تنفيذ `.\gradlew.bat :shared:jvmTest` — 139 اختباراً ناجحاً بنسبة 100% (0 فشل).
 - [x] **بناء حزمة أندرويد النهائية:**
   - تنفيذ `.\gradlew.bat :androidApp:assembleDebug` — بناء نظيف ناجح 100%.
+  - تنفيذ `.\gradlew.bat :androidApp:bundleRelease` — حزمة Release AAB بحجم 76.2MB جاهزة للمتجر (< 200MB).
 - [x] **فحص التطهير التام بالأوامر (Sanitization Grep):**
   - فحص خلو الكود والمانيفست من `INTERNET` و `android.speech`.
-- [x] **تحديث وثائق المشروع (README.md و review.md) (P11):**
-  - توثيق مصفوفة العيوب P1-P11 كاملة في `review.md`.
+- [x] **تحديث وثائق المشروع (README.md و review.md و docs/WHISPER_ARCHITECTURE_GUIDE.md):**
+  - توثيق تفاصيل JNI وربط الميزانية ومراحل المعالجة الصوتية وحفظ الحالة عند التدوير.

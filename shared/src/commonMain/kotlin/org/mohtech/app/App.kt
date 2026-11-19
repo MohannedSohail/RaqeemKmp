@@ -10,14 +10,17 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import org.mohtech.app.ai.audio.VoiceEngine
 import org.mohtech.app.ai.audio.createVoiceEngine
+import org.mohtech.app.ai.whisper.createLocalSpeechTranscriber
+import org.mohtech.app.ai.whisper.createRawAudioRecorder
 import org.mohtech.app.core.theme.RaqeemTheme
 import org.mohtech.app.data.repository.LocalExpenseRepository
 import org.mohtech.app.data.storage.createAppPreferences
@@ -40,29 +43,42 @@ enum class AppDestination {
  * Smooth animated transitions across lifecycle:
  * Splash -> Onboarding -> Dashboard
  * Synchronous onboarding verification to eliminate flash-of-unstyled-content (FOUC).
+ * Survives configuration change / rotation without reset loop.
  */
 @Composable
 fun App(
-    voiceEngine: VoiceEngine? = remember { createVoiceEngine() },
+    voiceEngine: VoiceEngine? = null,
     onRequestMicPermission: (() -> Unit)? = null
 ) {
     val preferences = remember { createAppPreferences() }
-    val storage = remember { createPlatformExpenseStorage() }
-    val repository = remember { LocalExpenseRepository(storage, preferences) }
-    val viewModel = remember { ExpenseViewModel(repository, preferences, voiceEngine = voiceEngine) }
-
-    DisposableEffect(voiceEngine) {
-        onDispose {
-            voiceEngine?.release()
-        }
+    val navigationState = rememberSaveable(saver = AppNavigationState.Saver) {
+        AppNavigationState()
     }
 
+    val viewModel: ExpenseViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                val storage = createPlatformExpenseStorage()
+                val repository = LocalExpenseRepository(storage, preferences)
+                val recorder = createRawAudioRecorder()
+                val transcriber = createLocalSpeechTranscriber()
+                val engine = voiceEngine ?: createVoiceEngine()
+                ExpenseViewModel(
+                    repository = repository,
+                    preferences = preferences,
+                    voiceEngine = engine,
+                    transcriber = transcriber,
+                    audioRecorder = recorder
+                )
+            }
+        }
+    )
+
     val state by viewModel.uiState.collectAsState()
-    var currentDestination by remember { mutableStateOf(AppDestination.SPLASH) }
 
     RaqeemTheme {
         AnimatedContent(
-            targetState = currentDestination,
+            targetState = navigationState.currentDestination,
             transitionSpec = {
                 when {
                     initialState == AppDestination.SPLASH -> {
@@ -89,11 +105,7 @@ fun App(
                 AppDestination.SPLASH -> {
                     SplashScreen(
                         onSplashFinished = {
-                            if (preferences.isOnboardingCompleted() || state.isOnboardingDone) {
-                                currentDestination = AppDestination.DASHBOARD
-                            } else {
-                                currentDestination = AppDestination.ONBOARDING
-                            }
+                            navigationState.onSplashFinished(preferences, state.isOnboardingDone)
                         }
                     )
                 }
@@ -101,8 +113,16 @@ fun App(
                     OnboardingScreen(
                         onComplete = {
                             viewModel.handleIntent(ExpenseIntent.CompleteOnboarding)
-                            currentDestination = AppDestination.DASHBOARD
-                        }
+                            navigationState.onOnboardingComplete(preferences)
+                        },
+                        onRequestMicPermission = onRequestMicPermission,
+                        onPreferencesConfigured = { currency, budget ->
+                            preferences.setPreferredCurrency(currency)
+                            preferences.setWeeklyBudget(budget)
+                            viewModel.handleIntent(ExpenseIntent.UpdateWeeklyBudget(budget))
+                        },
+                        initialCurrency = preferences.getPreferredCurrency(),
+                        initialBudget = preferences.getWeeklyBudget()
                     )
                 }
                 AppDestination.DASHBOARD -> {

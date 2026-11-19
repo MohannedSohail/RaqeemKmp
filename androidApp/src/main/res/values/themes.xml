@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base dark application theme -->
+    <style name="Theme.Raqeem" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0E131F</item>
+        <item name="android:statusBarColor">#0E131F</item>
+        <item name="android:navigationBarColor">#0E131F</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Starting Splash Theme: eliminates white flash on cold boot -->
+    <style name="Theme.Raqeem.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0E131F</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Raqeem</item>
+    </style>
+</resources>
+

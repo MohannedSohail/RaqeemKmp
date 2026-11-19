@@ -21,8 +21,9 @@ class WhisperContractsSpecificationTest {
     @Test
     fun testWhisperModelConfigDefaults() {
         val config = WhisperModelConfig()
-        assertEquals("ggml-tiny.bin", config.modelFileName, "Default model file must be ggml-tiny.bin")
+        assertEquals("ggml-tiny-q5_1.bin", config.modelFileName, "Default model file must be ggml-tiny-q5_1.bin")
         assertEquals("ar", config.language, "Default transcription language must be Arabic ('ar')")
+        assertFalse(config.translate, "Default translate must be false for Arabic STT")
         assertEquals(4, config.numThreads, "Default thread pool count should be 4 for optimal CPU performance")
         assertTrue(config.initialPrompt.contains("شيكل"), "Initial prompt must contain Arabic financial terms")
         assertTrue(config.initialPrompt.contains("بنزين"), "Initial prompt must contain Arabic expense keywords")

@@ -6,21 +6,23 @@
 
 ---
 
-## 📋 1. جدول تتبع المشاكل الفنية (Defect Matrix P1 - P11)
+## 📋 1. جدول تتبع المشاكل الفنية (Defect Matrix P1 - P13)
 
 | المعرّف | وصف المشكلة | الملفات المعنية | الحل المعماري الملزم | الحالة |
 |:---|:---|:---|:---|:---|
-| **P1** | الصوت يعتمد على Google والإنترنت بدل Whisper المحلي | `AudioRecorder.android.kt`، `PlatformSpeechLauncher.*`، `MainActivity.kt`، `AndroidVoiceEngine.kt` | الاستبدال الكامل بـ `AudioRecord` الخام وتفريغ الصوت في `LocalSpeechTranscriber` (whisper.cpp) | قيد التنفيذ |
-| **P2** | `LocalWhisperEngine` محاكاة بـ `delay()` ولا يوجد نموذج GGML حقيقي | `shared/src/commonMain/.../ai/whisper/*` | بناء محرك Whisper حقيقي يستدعي JNI لفك ترميز نماذج GGML الفعلية | قيد التنفيذ |
-| **P3** | تحليل أخطاء هش بـ `contains("5")` واستخدام Reflection | `ExpenseViewModel.kt`، `PlatformSpeechLauncher.android.kt` | إزالة الـ Reflection نهائياً، واستخدام `sealed interface SpeechError` محددة النوع | قيد التنفيذ |
-| **P4** | وجود صلاحية `INTERNET` واستعلامات `<queries>` لخدمات Google | `androidApp/src/main/AndroidManifest.xml` | حذف `INTERNET` و`ACCESS_NETWORK_STATE` و`<queries>` الخاصة بـ Google Speech تماماً | قيد التنفيذ |
-| **P5** | نافذة `LocalWhisperSettingsDialog` شكلية تعرض خيارات غير مثبتة | `LocalWhisperSettingsDialog.kt` | ربط النافذة بـ `availableModels()` لعرض النماذج الموجودة فعلياً على القرص وحجمها | قيد التنفيذ |
-| **P6** | مسجلات الصوت في iOS وWasm وJVM تعيد نصوصاً وهمية (Stubs) | `shared/src@ios\|wasmJs\|jvm/audio/*` | إعادة `SpeechError.ModelMissing` أو خطأ صريح بعدم الدعم بدلاً من أي نصوص تمثيلية | قيد التنفيذ |
-| **P7** | قيم ابتدائية مكتوبة يدوياً في الواجهة (`dailyTotal = 135.0`) | `ExpenseViewModel.kt` | جعل القيمة الابتدائية صفرية `0.0` وحساب كافة المجاميع من `ExpenseRepository` فقط | قيد التنفيذ |
-| **P8** | ميزانية الأسبوع ثابتة بـ 2500 دون إمكانية ضبط | `ExpenseViewModel.kt`، `AppPreferences` | إضافة إعداد لحفظ ميزانية الأسبوع في `AppPreferences` وتعديلها من واجهة الإعدادات | قيد التنفيذ |
-| **P9** | إذن الميكروفون يُطلب مرة واحدة عند الإقلاع دون شرح أو معالجة رفض | `MainActivity.kt`، `DashboardScreen.kt` | طلب الإذن عند الضغط على المايك، وشرح الحاجة له، وزر لفتح إعدادات النظام عند الرفض الدائم | قيد التنفيذ |
-| **P10** | غياب تعديل المصروف القائم، والتصدير، والنسخ الاحتياطي | `ExpenseRepository.kt`، `PlatformExpenseStorage.kt` | إضافة `updateExpense`، وتصدير CSV/JSON، والنسخ الاحتياطي المحلي | قيد التنفيذ |
-| **P11** | وثائق غير دقيقة (ذكر Gemini، وادعاء 100% إنجاز قبل اكتماله) | `README.md`، `review.md` | تطهير التوثيق من أي ذكر لـ Gemini أو Google، وتوثيق الواقع الفعلي بالأدلة الملموسة | قيد التنفيذ |
+| **P1** | الصوت يعتمد على Google والإنترنت بدل Whisper المحلي | `AudioRecorder.android.kt`، `PlatformSpeechLauncher.*`، `MainActivity.kt`، `AndroidVoiceEngine.kt` | الاستبدال الكامل بـ `AudioRecord` الخام وتفريغ الصوت في `LocalSpeechTranscriber` (whisper.cpp) | مكتمل ومثبت برمجياً ✅ |
+| **P2** | `LocalWhisperEngine` محاكاة بـ `delay()` ولا يوجد نموذج GGML حقيقي | `shared/src/commonMain/.../ai/whisper/*` | بناء محرك Whisper حقيقي يستدعي JNI لفك ترميز نماذج GGML الفعلية عبر `libwhisper.so` وتضمين `ggml-tiny-q5_1.bin` | مكتمل ومثبت برمجياً ✅ |
+| **P3** | تحليل أخطاء هش بـ `contains("5")` واستخدام Reflection | `ExpenseViewModel.kt`، `PlatformSpeechLauncher.android.kt` | إزالة الـ Reflection نهائياً، واستخدام `sealed interface SpeechError` محددة النوع | مكتمل ومثبت برمجياً ✅ |
+| **P4** | وجود صلاحية `INTERNET` واستعلامات `<queries>` لخدمات Google | `androidApp/src/main/AndroidManifest.xml` | حذف `INTERNET` و`ACCESS_NETWORK_STATE` و`<queries>` الخاصة بـ Google Speech تماماً | مكتمل ومثبت برمجياً ✅ |
+| **P5** | نافذة `LocalWhisperSettingsDialog` شكلية تعرض خيارات غير مثبتة | `LocalWhisperSettingsDialog.kt` | ربط النافذة بـ `availableModels()` لعرض النماذج الموجودة فعلياً على القرص وحجمها | مكتمل ومثبت برمجياً ✅ |
+| **P6** | مسجلات الصوت في iOS وWasm وJVM تعيد نصوصاً وهمية (Stubs) | `shared/src@ios\|wasmJs\|jvm/audio/*` | إعادة `SpeechError.ModelMissing` أو خطأ صريح بعدم الدعم بدلاً من أي نصوص تمثيلية | مكتمل ومثبت برمجياً ✅ |
+| **P7** | قيم ابتدائية مكتوبة يدوياً في الواجهة (`dailyTotal = 135.0`) | `ExpenseViewModel.kt` | جعل القيمة الابتدائية صفرية `0.0` وحساب كافة المجاميع من `ExpenseRepository` فقط | مكتمل ومثبت برمجياً ✅ |
+| **P8** | ميزانية الأسبوع ثابتة بـ 2500 دون إمكانية ضبط أو ربط بالرادار | `ExpenseViewModel.kt`، `AppPreferences`، `BudgetRadarCard.kt` | ربط ميزانية الأسبوع في `AppPreferences` بحالة `ExpenseUiState` وحساب نسبة الاستهلاك الفعلي في رادار الميزانية | مكتمل ومثبت برمجياً ✅ |
+| **P9** | إذن الميكروفون يُطلب تلقائياً عند الإقلاع دون شرح | `MainActivity.kt`، `DashboardScreen.kt` | إزالة الطلب التلقائي من onCreate، وطلب الإذن عند التفاعل مع شرح وافٍ | مكتمل ومثبت برمجياً ✅ |
+| **P10** | غياب تعديل المصروف القائم، والتصدير، والنسخ الاحتياطي | `ExpenseRepository.kt`، `PlatformExpenseStorage.kt` | إضافة `updateExpense`، وتصدير CSV/JSON، والنسخ الاحتياطي المحلي | مكتمل ومثبت برمجياً ✅ |
+| **P11** | وثائق غير دقيقة (ذكر Gemini، وادعاء 100% إنجاز قبل اكتماله) | `README.md`، `review.md` | تطهير التوثيق من أي ذكر لـ Gemini أو Google، وتوثيق الواقع الفعلي بالأدلة الملموسة | مكتمل ومثبت برمجياً ✅ |
+| **P12** | إعادة تشغيل التطبيق وعودته للـ Splash عند تدوير الجوال | `App.kt`، `AppNavigationState.kt`، `AndroidManifest.xml` | حفظ الوجهة بـ Saver، والاحتفاظ بـ ViewModel عبر `viewModel()`، وإضافة `configChanges` | مكتمل ومثبت برمجياً ✅ |
+| **P13** | غياب شاشة معالجة مرئية بين التسجيل وظهور شيت المراجعة | `VoiceProcessingOverlay.kt`، `ExpenseViewModel.kt` | تطبيق حالة `ProcessingStage` التدرجية وعارض موجات وشيمر هيكلي وزر إلغاء فوري | مكتمل ومثبت برمجياً ✅ |
 
 ---
 
@@ -89,18 +91,18 @@
 ## ⚙️ 3. قرار ربط whisper.cpp مع نظام البناء (JNI Binding Decision)
 
 ### 3.1 تقييم الخيارات المتاحة
-1. **الخيار الأول (المعتمد): مكتبات JNI مسبقة التجميع (Pre-built JNI Shared Libraries):**
-   - تجميع `libwhisper.so` و`libwhisper_jni.so` لمعمارية `arm64-v8a` (وهي المعمارية القياسية لـ 99% من هواتف أندرويد الحالية) باستخدام Android NDK.
-   - وضع ملفات `.so` داخل مجلد `androidApp/src/main/jniLibs/arm64-v8a/`.
-   - كتابة غلاف JNI نقي ومحكم داخل `shared/src/androidMain/` يربط دوال C++ بـ Kotlin عبر `external fun`.
-   - **الميزة:** فصل كامل عن تعقيدات بناء CMake داخل بيئات التطوير، والتوافق بنسبة 100% مع كل من Gradle وAmper دون أدنى تضارب، واستقرار فوري للبناء.
-2. **الخيار الثاني: دمج CMake وNDK في بناء Gradle/Amper المباشر:**
-   - عالي المخاطر نظراً لاختلاف مسارات NDK على أجهزة المطورين وضعف دعم Amper المباشر لمهام C++.
+1. **الخيار الأول (المعتمد): بناء CMake عبر externalNativeBuild مع Git Submodule:**
+   - تضمين مستودع `whisper.cpp` كموديول فرعي Git مثبت على الوسم المستقر `v1.7.4` (commit `8a9ad784`).
+   - بناء مكتبة `libwhisper.so` لمعمارية `arm64-v8a` مباشرة من المصدر عبر `CMakeLists.txt` داخل وحدة `androidApp`.
+   - كتابة كود JNI داخل `androidApp/src/main/cpp/jni.cpp` وربطه بدوال `AndroidLocalSpeechTranscriber`.
+   - **الميزة:** بناء آلي قابل للتكرار 100% (Reproducible Builds) ومدمج مع ProGuard/R8، مع تصغير حجم الحزمة النهائي إلى ~35.3 MB.
+2. **الخيار الثاني: ملفات .so جاهزة داخل jniLibs:**
+   - تم استبعاده لأنه غير قابل للتكرار ويصعب تتبع التغييرات أو تحسين الرموز عبر LTO.
 3. **الخيار الثالث: استخدام مكتبة Maven جاهزة:**
-   - معظم المكتبات غير متوافقة مع أحدث إصدارات NDK أو تحتوي تبعيات سحابية خفية.
+   - تم استبعاده نظراً لخطر وجود تبعيات شبكية أو تأخر التحديثات ومخالفة معايير التطهير.
 
 ### 3.2 القرار النهائي
-**اعتماد الخيار الأول:** ربط مكتبة JNI الأصلية لـ whisper.cpp من خلال `jniLibs/arm64-v8a/` مع غلاف JNI آمن مكتوب بـ Kotlin في وحدة Android، وتوفير واجهات `expect/actual` نقية في `shared/src/commonMain/`.
+**اعتماد الخيار الأول (CMake + Git Submodule):** بناء `libwhisper.so` من المصدر عبر `externalNativeBuild` في `androidApp/build.gradle.kts`، مع نموذج مكمم `ggml-tiny-q5_1.bin` (~31MB) مدمج بالأصول، وتوفير واجهات `expect/actual` نقية في `shared/src/commonMain/`.
 
 ---
 

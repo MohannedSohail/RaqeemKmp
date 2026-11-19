@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import org.mohtech.app.ai.audio.AndroidVoiceBridge
 import org.mohtech.app.data.storage.AndroidContextHolder
 
@@ -31,6 +32,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
@@ -41,15 +43,6 @@ class MainActivity : ComponentActivity() {
         AndroidVoiceBridge.activityProvider = { this }
         AndroidVoiceBridge.micPermissionLauncher = { onGranted, onDenied ->
             requestMicPermission(onGranted, onDenied)
-        }
-
-        // Request Record Audio permission if not already granted on startup
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
 
         setContent {

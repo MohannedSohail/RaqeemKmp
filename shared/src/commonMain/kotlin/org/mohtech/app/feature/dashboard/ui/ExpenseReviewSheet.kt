@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,10 +58,10 @@ fun ExpenseReviewSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val firstItem = batch.items.firstOrNull() ?: return
 
-    var selectedCategory by remember { mutableStateOf(firstItem.category) }
-    var isEditing by remember { mutableStateOf(false) }
-    var itemTitle by remember { mutableStateOf(firstItem.title) }
-    var itemAmountStr by remember {
+    var selectedCategory by rememberSaveable { mutableStateOf(firstItem.category) }
+    var isEditing by rememberSaveable { mutableStateOf(false) }
+    var itemTitle by rememberSaveable { mutableStateOf(firstItem.title) }
+    var itemAmountStr by rememberSaveable {
         mutableStateOf(if (firstItem.amount % 1.0 == 0.0) "${firstItem.amount.toInt()}" else "${firstItem.amount}")
     }
 
@@ -158,7 +159,7 @@ fun ExpenseReviewSheet(
                                 Text(
                                     text = "المشتريات",
                                     color = RaqeemColors.TextTertiary,
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Normal
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -174,7 +175,7 @@ fun ExpenseReviewSheet(
                                 Text(
                                     text = "المبلغ المحسوب",
                                     color = RaqeemColors.TextTertiary,
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Normal
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -201,15 +202,22 @@ fun ExpenseReviewSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.End
                         ) {
-                            Text(
-                                text = "✎ تعديل الاسم أو المبلغ",
-                                color = RaqeemColors.ElectricCyan,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
                                     .clickable { isEditing = true }
-                                    .padding(vertical = 4.dp, horizontal = 4.dp)
-                            )
+                                    .padding(vertical = 6.dp, horizontal = 8.dp)
+                            ) {
+                                RaqeemIcons.Edit(size = 14.dp, tint = RaqeemColors.ElectricCyan)
+                                Text(
+                                    text = "تعديل الاسم أو المبلغ",
+                                    color = RaqeemColors.ElectricCyan,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 } else {
@@ -228,15 +236,22 @@ fun ExpenseReviewSheet(
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
                             )
-                            Text(
-                                text = "حفظ التغييرات ✓",
-                                color = RaqeemColors.EmeraldGreen,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
                                     .clickable { isEditing = false }
-                                    .padding(4.dp)
-                            )
+                                    .padding(vertical = 4.dp, horizontal = 8.dp)
+                            ) {
+                                Text(
+                                    text = "حفظ التغييرات",
+                                    color = RaqeemColors.EmeraldGreen,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                RaqeemIcons.Check(size = 14.dp, tint = RaqeemColors.EmeraldGreen)
+                            }
                         }
 
                         OutlinedTextField(

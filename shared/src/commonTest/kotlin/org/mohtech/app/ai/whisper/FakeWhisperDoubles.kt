@@ -20,8 +20,8 @@ class FakeTranscriber(
         InstalledModel(
             id = "tiny",
             name = "Whisper Tiny (Offline)",
-            fileName = "ggml-tiny.bin",
-            sizeBytes = 75_000_000L,
+            fileName = "ggml-tiny-q5_1.bin",
+            sizeBytes = 31_000_000L,
             isInstalled = true,
             isDefault = true
         )

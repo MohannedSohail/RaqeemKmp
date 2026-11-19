@@ -4,6 +4,14 @@ import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
 
+enum class ProcessingStage {
+    IDLE,
+    FINALIZING_AUDIO,
+    TRANSCRIBING,
+    UNDERSTANDING,
+    READY
+}
+
 /**
  * MVI Contract for Raqeem Dashboard & Expense Management
  */
@@ -11,8 +19,10 @@ data class ExpenseUiState(
     val isLoading: Boolean = false,
     val isRecording: Boolean = false,
     val recordingAmplitude: Float = 0f,
+    val processingStage: ProcessingStage = ProcessingStage.IDLE,
     val todayTotal: Double = 0.0,
     val weeklyTotal: Double = 0.0,
+    val weeklyBudget: Double = 2500.0,
     val activeCurrency: String = "₪",
     val recentExpenses: List<ExpenseItem> = emptyList(),
     val filteredExpenses: List<ExpenseItem> = emptyList(),
@@ -26,12 +36,18 @@ data class ExpenseUiState(
     val userErrorMessage: String? = null
 ) {
     val dailyTotal: Double get() = todayTotal
+    val isProcessing: Boolean get() = processingStage != ProcessingStage.IDLE
+    val budgetProgressRatio: Float get() = if (weeklyBudget > 0.0) {
+        (weeklyTotal / weeklyBudget).toFloat().coerceIn(0f, 1f)
+    } else 0f
 }
 
 sealed interface ExpenseIntent {
     data object LoadInitialData : ExpenseIntent
     data object CheckPermissionsAndStartRecord : ExpenseIntent
     data object StopRecording : ExpenseIntent
+    data object CancelProcessing : ExpenseIntent
+    data object FinishProcessingReady : ExpenseIntent
     data class UpdateAmplitude(val amplitude: Float) : ExpenseIntent
     data class ParseManualSpeechText(val rawText: String) : ExpenseIntent
     data class ParseBankSms(val smsBody: String) : ExpenseIntent
@@ -39,6 +55,7 @@ sealed interface ExpenseIntent {
     data class DeleteExpense(val expenseId: String) : ExpenseIntent
     data class EditExpense(val item: ExpenseItem) : ExpenseIntent
     data class FilterByCategory(val category: ExpenseCategory?) : ExpenseIntent
+    data class UpdateWeeklyBudget(val budget: Double) : ExpenseIntent
     data object OpenManualSheet : ExpenseIntent
     data object DismissReviewSheet : ExpenseIntent
     data object DismissFallbackSheet : ExpenseIntent
