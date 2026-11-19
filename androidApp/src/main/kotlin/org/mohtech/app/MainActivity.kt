@@ -1,7 +1,9 @@
 package org.mohtech.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,14 +12,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import org.mohtech.app.ai.audio.AndroidVoiceBridge
 import org.mohtech.app.data.storage.AndroidContextHolder
+import org.mohtech.app.feature.reports.AndroidReportBridge
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
     private var onPermissionGrantedCallback: (() -> Unit)? = null
     private var onPermissionDeniedCallback: (() -> Unit)? = null
+    private var pendingFileToSave: String? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -29,6 +35,27 @@ class MainActivity : ComponentActivity() {
         }
         onPermissionGrantedCallback = null
         onPermissionDeniedCallback = null
+    }
+
+    private val createDocumentLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*")
+    ) { uri: Uri? ->
+        val sourcePath = pendingFileToSave
+        if (uri != null && sourcePath != null) {
+            try {
+                val sourceFile = File(sourcePath)
+                if (sourceFile.exists()) {
+                    contentResolver.openOutputStream(uri)?.use { outStream ->
+                        sourceFile.inputStream().use { inStream ->
+                            inStream.copyTo(outStream)
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+                // Ignore SAF write failure
+            }
+        }
+        pendingFileToSave = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,6 +70,15 @@ class MainActivity : ComponentActivity() {
         AndroidVoiceBridge.activityProvider = { this }
         AndroidVoiceBridge.micPermissionLauncher = { onGranted, onDenied ->
             requestMicPermission(onGranted, onDenied)
+        }
+
+        // Wire AndroidReportBridge delegates for FileProvider and SAF
+        AndroidReportBridge.shareFileDelegate = { filePath, mimeType ->
+            shareReportFile(filePath, mimeType)
+        }
+        AndroidReportBridge.saveDocumentLauncher = { sourcePath, defaultFileName, _ ->
+            pendingFileToSave = sourcePath
+            createDocumentLauncher.launch(defaultFileName)
         }
 
         setContent {
@@ -71,13 +107,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun shareReportFile(filePath: String, mimeType: String) {
+        try {
+            val file = File(filePath)
+            if (!file.exists()) return
+            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "مشاركة التقرير"))
+        } catch (_: Throwable) {
+            // Ignore share intent failures
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         AndroidVoiceBridge.activityProvider = null
         AndroidVoiceBridge.speechIntentLauncher = null
         AndroidVoiceBridge.micPermissionLauncher = null
+        AndroidReportBridge.shareFileDelegate = null
+        AndroidReportBridge.saveDocumentLauncher = null
         onPermissionGrantedCallback = null
         onPermissionDeniedCallback = null
+        pendingFileToSave = null
     }
 }
 
