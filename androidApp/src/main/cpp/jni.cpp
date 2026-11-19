@@ -102,7 +102,14 @@ Java_org_mohtech_app_ai_whisper_AndroidLocalSpeechTranscriber_fullTranscribe(
     params.n_threads = n_threads;
     params.offset_ms = 0;
     params.no_context = true;
-    params.single_segment = false;
+    params.no_timestamps = true;
+    params.single_segment = true;
+    params.suppress_blank = true;
+    params.suppress_nst = true;
+    params.temperature_inc = 0.0f;
+    params.entropy_thold = 2.4f;
+    params.logprob_thold = -1.0f;
+    params.no_speech_thold = 0.6f;
 
     if (prompt_chars != nullptr && std::strlen(prompt_chars) > 0) {
         params.initial_prompt = prompt_chars;

@@ -19,7 +19,7 @@ data class WhisperModelConfig(
     val modelFileName: String = "ggml-tiny-q5_1.bin",
     val language: String = "ar",
     val translate: Boolean = false,
-    val initialPrompt: String = "شيكل، ريال، جنيه، بنزين، قهوة، سوبرماركت، مطعم، دفعت، حاسبت، اشتريت",
+    val initialPrompt: String = "دفعت خمسين شيكل على البنزين، واشتريت قهوة بعشرة شيكل وسوبرماركت بمية وعشرين",
     val numThreads: Int = 4
 )
 

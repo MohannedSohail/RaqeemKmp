@@ -122,7 +122,7 @@ class LocalDialectExpenseParser {
                 while (j < words.size) {
                     val nextW = words[j].trim()
                     val cleanNext = nextW.removePrefix("و").removePrefix("ب")
-                    if (numberWordTokens.contains(cleanNext) && cleanNext != "نص" && cleanNext != "ربع") {
+                    if (numberWordTokens.contains(cleanNext)) {
                         candidateTokens.add(nextW)
                         j++
                     } else {
@@ -185,6 +185,15 @@ class LocalDialectExpenseParser {
     }
 
     private fun detectPayer(text: String): Payer {
+        // Pattern 0: "دفع عني [الاسم]" / "سدد عني [الاسم]" / "دفعها لي [الاسم]"
+        val paidForMeRegex = Regex("""(?:دفع\s+عني|سدد\s+عني|دفعها\s+لي|سددها\s+لي)\s+([^\s,]+)""")
+        paidForMeRegex.find(text)?.let {
+            val name = it.groupValues[1].trim()
+            if (name != "أنا") {
+                return Payer(id = name, name = name, isCurrentUser = false)
+            }
+        }
+
         // Pattern 1: "على حساب [الاسم]"
         val onAccountRegex = Regex("""على\s+حساب\s+([^\s,]+)""")
         onAccountRegex.find(text)?.let {
@@ -198,7 +207,7 @@ class LocalDialectExpenseParser {
         val paidByRegex = Regex("""(?:دفعها|دفعه|دفع|سددها|سدد)\s+([^\s,]+)""")
         paidByRegex.find(text)?.let {
             val name = it.groupValues[1].trim()
-            if (name != "أنا" && !name.startsWith("ت")) { // avoid "دفعت"
+            if (name != "أنا" && !name.startsWith("ت") && name != "عني" && name != "لي") { // avoid "دفعت"
                 return Payer(id = name, name = name, isCurrentUser = false)
             }
         }
@@ -207,6 +216,41 @@ class LocalDialectExpenseParser {
     }
 
     private fun detectSplit(text: String, totalAmount: Double, currentPayer: Payer): ExpenseSplit? {
+        // Pattern A: "سددت عن [الاسم]" / "دفعت عن [الاسم]" (payer is self, beneficiary is other)
+        val paidOnBehalfRegex = Regex("""(?:دفعت\s+عن|سددت\s+عن)\s+([^\s,]+)""")
+        val onBehalfMatch = paidOnBehalfRegex.find(text)
+        if (onBehalfMatch != null) {
+            val beneficiary = onBehalfMatch.groupValues[1].trim()
+            val participants = listOf(
+                Payer(id = beneficiary, name = beneficiary, isCurrentUser = false)
+            )
+            return ExpenseSplit(
+                totalAmount = totalAmount,
+                payer = currentPayer,
+                participants = participants,
+                amountPerPerson = totalAmount,
+                note = "سددت نيابة عن $beneficiary"
+            )
+        }
+
+        // Pattern B: "دفع عني [الاسم]" / "سدد عني [الاسم]"
+        val paidForMeRegex = Regex("""(?:دفع\s+عني|سدد\s+عني)\s+([^\s,]+)""")
+        val forMeMatch = paidForMeRegex.find(text)
+        if (forMeMatch != null) {
+            val payerName = forMeMatch.groupValues[1].trim()
+            val participants = listOf(
+                Payer(id = "self", name = "أنا", isCurrentUser = true)
+            )
+            return ExpenseSplit(
+                totalAmount = totalAmount,
+                payer = currentPayer,
+                participants = participants,
+                amountPerPerson = totalAmount,
+                note = "دفع $payerName عني"
+            )
+        }
+
+        // Pattern C: "بيني وبين [الاسم]"
         val betweenRegex = Regex("""بيني\s+وبين\s+([^\s,]+)""")
         val match = betweenRegex.find(text)
         if (match != null) {

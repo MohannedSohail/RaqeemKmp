@@ -172,4 +172,80 @@ class DialectParserTest {
         assertEquals(20.0, item.amount)
         assertEquals(ExpenseCategory.GENERAL, item.category)
     }
+
+    // 17. Multiplied thousands: "ثلاثة آلاف شيكل"
+    @Test
+    fun testMultipliedThousandsArabicNumber() {
+        val result = parser.parseSpokenText("إيجار ثلاثة آلاف شيكل", defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        val item = result.items.first()
+        assertEquals(3000.0, item.amount)
+        assertEquals(ExpenseCategory.BILLS, item.category)
+    }
+
+    // 18. Thousand and fraction: "ألف ونص شيكل"
+    @Test
+    fun testThousandAndHalfFraction() {
+        val result = parser.parseSpokenText("قسط ألف ونص شيكل", defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        val item = result.items.first()
+        assertEquals(1500.0, item.amount)
+        assertEquals(ExpenseCategory.BILLS, item.category)
+    }
+
+    // 19. Hundred and quarter fraction: "مية وربع ريال"
+    @Test
+    fun testHundredAndQuarterFraction() {
+        val result = parser.parseSpokenText("فاتورة مية وربع ريال", defaultCurrency = "ر.س", currentTimestamp = fixedTimestamp)
+        val item = result.items.first()
+        assertEquals(125.0, item.amount)
+        assertEquals(ExpenseCategory.BILLS, item.category)
+    }
+
+    // 20. Explicit on-behalf: "سددت عن أحمد خمسين شيكل"
+    @Test
+    fun testPaidOnBehalfOfOther() {
+        val result = parser.parseSpokenText("سددت عن أحمد خمسين شيكل غداء", defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        val item = result.items.first()
+        assertEquals(50.0, item.amount)
+        assertTrue(item.payer.isCurrentUser)
+        assertNotNull(item.split)
+        assertEquals("أحمد", item.split?.participants?.firstOrNull()?.name)
+        assertEquals(50.0, item.split?.amountPerPerson)
+    }
+
+    // 21. Explicit paid for me: "دفع عني محمد ثمانين شيكل"
+    @Test
+    fun testPaidForMeByOther() {
+        val result = parser.parseSpokenText("دفع عني محمد ثمانين شيكل عشاء", defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        val item = result.items.first()
+        assertEquals(80.0, item.amount)
+        assertEquals("محمد", item.payer.name)
+        assertEquals(false, item.payer.isCurrentUser)
+        assertNotNull(item.split)
+        assertTrue(item.split?.participants?.firstOrNull()?.isCurrentUser == true)
+    }
+
+    // 22. Normalized contextual currency: "بنزين ب 50 شكل"
+    @Test
+    fun testNormalizedContextualCurrency() {
+        val normalized = TranscriptNormalizer.normalize("بنزين ب 50 شكل")
+        val result = parser.parseSpokenText(normalized.normalizedText, defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        val item = result.items.first()
+        assertEquals(50.0, item.amount)
+        assertEquals("₪", item.currency)
+        assertEquals(ExpenseCategory.TRANSPORT, item.category)
+    }
+
+    // 23. Compound number with decimal fraction: "مية وخمسين ونص" -> 150.5
+    @Test
+    fun testCompoundNumberWithDecimalFraction() {
+        val parsed = ArabicNumberNormalizer.parseArabicNumberWords("مية وخمسين ونص")
+        assertEquals(150.5, parsed)
+    }
+
+    // 24. Units and tens with decimal fraction: "خمسة وثلاثين ونص" -> 35.5
+    @Test
+    fun testUnitsAndTensWithDecimalFraction() {
+        val parsed = ArabicNumberNormalizer.parseArabicNumberWords("خمسة وثلاثين ونص")
+        assertEquals(35.5, parsed)
+    }
 }

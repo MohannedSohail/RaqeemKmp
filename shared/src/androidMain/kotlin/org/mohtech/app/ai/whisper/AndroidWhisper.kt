@@ -295,6 +295,14 @@ class AndroidLocalSpeechTranscriber(
             return@withContext TranscribeResult.Failure(SpeechError.EmptyResult)
         }
 
+        // Apply Voice Activity Detection (VAD)
+        val vad = org.mohtech.app.ai.audio.VoiceActivityDetector()
+        val vadResult = vad.process(pcm16kMono)
+        val activePcm = when (vadResult) {
+            is org.mohtech.app.ai.audio.VadResult.Speech -> vadResult.trimmedPcm
+            is org.mohtech.app.ai.audio.VadResult.NoSpeech -> return@withContext TranscribeResult.Failure(SpeechError.EmptyResult)
+        }
+
         if (!isNativeLibraryLoaded) {
             return@withContext TranscribeResult.Failure(SpeechError.ModelMissing)
         }
@@ -319,7 +327,7 @@ class AndroidLocalSpeechTranscriber(
             }
 
             // Audio chunking for recordings > 30s
-            val chunks = AudioProcessor.chunkAudio(pcm16kMono, AudioProcessor.SAMPLES_PER_30S_CHUNK)
+            val chunks = AudioProcessor.chunkAudio(activePcm, AudioProcessor.SAMPLES_PER_30S_CHUNK)
             val startTime = System.currentTimeMillis()
             val textBuilder = StringBuilder()
 

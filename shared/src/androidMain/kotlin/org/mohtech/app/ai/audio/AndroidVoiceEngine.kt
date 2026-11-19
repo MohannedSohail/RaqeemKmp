@@ -149,10 +149,19 @@ class AndroidVoiceEngine(private val context: Context) : VoiceEngine {
                 return@post
             }
 
+            // Apply Voice Activity Detection (VAD) to trim silence and eliminate hallucinations
+            val vad = VoiceActivityDetector()
+            val vadResult = vad.process(pcm)
+            if (vadResult !is VadResult.Speech) {
+                onError?.invoke("NO_MATCH")
+                return@post
+            }
+            val activePcm = vadResult.trimmedPcm
+
             val localTranscriber = transcriber ?: AndroidLocalSpeechTranscriber(context).also { transcriber = it }
 
             engineScope.launch {
-                val result = localTranscriber.transcribe(pcm)
+                val result = localTranscriber.transcribe(activePcm)
                 when (result) {
                     is TranscribeResult.Success -> {
                         if (result.text.isNotBlank()) {
