@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import org.mohtech.app.core.haptics.HapticFeedbackType
+import org.mohtech.app.core.haptics.LocalRaqeemHaptics
 import org.mohtech.app.core.theme.RaqeemColors
 
 /**
@@ -45,6 +47,7 @@ fun VoiceRecordButton(
     onRecordToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptics = LocalRaqeemHaptics.current
     val infiniteTransition = rememberInfiniteTransition(label = "voicePulse")
 
     val pulseScale by infiniteTransition.animateFloat(
@@ -122,7 +125,10 @@ fun VoiceRecordButton(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = ripple(bounded = true, color = RaqeemColors.BackgroundSlate),
-                    onClick = onRecordToggle
+                    onClick = {
+                        haptics.trigger(HapticFeedbackType.SubtleTick)
+                        onRecordToggle()
+                    }
                 ),
             contentAlignment = Alignment.Center
         ) {

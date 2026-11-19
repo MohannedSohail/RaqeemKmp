@@ -43,6 +43,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.mohtech.app.core.haptics.HapticFeedbackType
+import org.mohtech.app.core.haptics.LocalRaqeemHaptics
 import org.mohtech.app.core.theme.RaqeemColors
 import org.mohtech.app.core.ui.RaqeemIcons
 import org.mohtech.app.data.model.ExpenseBatch
@@ -57,6 +59,7 @@ fun ExpenseReviewSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val firstItem = batch.items.firstOrNull() ?: return
+    val haptics = LocalRaqeemHaptics.current
 
     var selectedCategory by rememberSaveable { mutableStateOf(firstItem.category) }
     var isEditing by rememberSaveable { mutableStateOf(false) }
@@ -341,7 +344,10 @@ fun ExpenseReviewSheet(
                                 if (isSelected) catColor.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.06f),
                                 RoundedCornerShape(10.dp)
                             )
-                            .clickable { selectedCategory = cat }
+                            .clickable {
+                                haptics.trigger(HapticFeedbackType.LightTick)
+                                selectedCategory = cat
+                            }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -368,6 +374,7 @@ fun ExpenseReviewSheet(
             // Confirm Button (Clean, authoritative, quiet)
             Button(
                 onClick = {
+                    haptics.trigger(HapticFeedbackType.SuccessImpact)
                     val finalAmount = itemAmountStr.toDoubleOrNull() ?: firstItem.amount
                     val finalTitle = itemTitle.ifBlank { firstItem.title }
                     val updatedItems = batch.items.map {

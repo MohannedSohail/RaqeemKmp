@@ -316,7 +316,7 @@ private fun OfflineStatusChip(
             Text(
                 text = "دون إنترنت • سرية تامة",
                 color = RaqeemColors.TextTertiary,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
         }

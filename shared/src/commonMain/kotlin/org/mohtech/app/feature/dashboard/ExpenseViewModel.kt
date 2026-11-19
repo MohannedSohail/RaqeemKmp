@@ -65,6 +65,7 @@ class ExpenseViewModel(
             is ExpenseIntent.ParseBankSms -> parseBankSms(intent.smsBody)
             is ExpenseIntent.ConfirmBatch -> confirmBatch(intent.batch)
             is ExpenseIntent.DeleteExpense -> deleteExpense(intent.expenseId)
+            is ExpenseIntent.RestoreExpense -> restoreExpense(intent.item)
             is ExpenseIntent.EditExpense -> editExpense(intent.item)
             is ExpenseIntent.FilterByCategory -> filterByCategory(intent.category)
             is ExpenseIntent.UpdateWeeklyBudget -> updateWeeklyBudget(intent.budget)
@@ -456,8 +457,19 @@ class ExpenseViewModel(
 
     private fun deleteExpense(expenseId: String) {
         viewModelScope.launch {
+            val itemToDelete = _uiState.value.recentExpenses.find { it.id == expenseId }
             repository.deleteExpense(expenseId)
-            _effects.emit(ExpenseEffect.ShowToast("تم حذف المصروف"))
+            if (itemToDelete != null) {
+                _effects.emit(ExpenseEffect.ShowUndoSnackbar(itemToDelete))
+            } else {
+                _effects.emit(ExpenseEffect.ShowToast("تم حذف المصروف"))
+            }
+        }
+    }
+
+    private fun restoreExpense(item: ExpenseItem) {
+        viewModelScope.launch {
+            repository.saveExpense(item)
         }
     }
 

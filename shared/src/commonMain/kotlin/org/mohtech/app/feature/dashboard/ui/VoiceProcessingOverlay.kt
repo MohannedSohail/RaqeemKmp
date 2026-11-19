@@ -59,6 +59,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.mohtech.app.core.haptics.HapticFeedbackType
+import org.mohtech.app.core.haptics.LocalRaqeemHaptics
 import org.mohtech.app.core.theme.RaqeemColors
 import org.mohtech.app.core.ui.RaqeemIcons
 import org.mohtech.app.data.model.ExpenseBatch
@@ -83,8 +85,12 @@ fun VoiceProcessingOverlay(
     modifier: Modifier = Modifier
 ) {
     val isVisible = stage != ProcessingStage.IDLE
+    val haptics = LocalRaqeemHaptics.current
 
     LaunchedEffect(stage) {
+        if (stage != ProcessingStage.IDLE) {
+            haptics.trigger(HapticFeedbackType.ProcessingStep)
+        }
         if (stage == ProcessingStage.READY) {
             kotlinx.coroutines.delay(420)
             onReadyFinished()

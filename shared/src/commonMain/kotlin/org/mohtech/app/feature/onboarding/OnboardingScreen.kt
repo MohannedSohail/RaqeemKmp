@@ -719,7 +719,7 @@ private fun ExpenseSplitInteractiveCard(currency: String) {
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(text = "50%", color = RaqeemColors.TextTertiary, fontSize = 10.sp)
+                    Text(text = "50%", color = RaqeemColors.TextTertiary, fontSize = 12.sp)
                 }
 
                 Box(
@@ -740,7 +740,7 @@ private fun ExpenseSplitInteractiveCard(currency: String) {
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(text = "50%", color = RaqeemColors.TextTertiary, fontSize = 10.sp)
+                    Text(text = "50%", color = RaqeemColors.TextTertiary, fontSize = 12.sp)
                 }
             } else {
                 // Paid by Ahmed
@@ -755,7 +755,7 @@ private fun ExpenseSplitInteractiveCard(currency: String) {
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(text = "30.0 $currency", color = RaqeemColors.TextTertiary, fontSize = 10.sp)
+                    Text(text = "30.0 $currency", color = RaqeemColors.TextTertiary, fontSize = 12.sp)
                 }
 
                 Box(
@@ -776,7 +776,7 @@ private fun ExpenseSplitInteractiveCard(currency: String) {
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(text = "100%", color = RaqeemColors.TextTertiary, fontSize = 10.sp)
+                    Text(text = "100%", color = RaqeemColors.TextTertiary, fontSize = 12.sp)
                 }
             }
         }

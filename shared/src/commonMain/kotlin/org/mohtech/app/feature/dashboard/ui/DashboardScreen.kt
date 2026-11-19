@@ -26,8 +26,10 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -50,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import org.mohtech.app.core.haptics.HapticFeedbackType as RaqeemHapticType
+import org.mohtech.app.core.haptics.LocalRaqeemHaptics
 import org.mohtech.app.core.theme.RaqeemColors
 import org.mohtech.app.core.ui.RaqeemIcons
 import org.mohtech.app.feature.dashboard.ExpenseEffect
@@ -73,6 +77,7 @@ fun DashboardScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val haptic = LocalHapticFeedback.current
+    val raqeemHaptics = LocalRaqeemHaptics.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
@@ -82,6 +87,7 @@ fun DashboardScreen(
         viewModel.effects.collect { effect ->
             when (effect) {
                 is ExpenseEffect.TriggerHapticFeedback -> {
+                    raqeemHaptics.trigger(RaqeemHapticType.SuccessImpact)
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
                 is ExpenseEffect.RequestMicPermission -> {
@@ -89,6 +95,17 @@ fun DashboardScreen(
                 }
                 is ExpenseEffect.ShowToast -> {
                     snackbarHostState.showSnackbar(effect.message)
+                }
+                is ExpenseEffect.ShowUndoSnackbar -> {
+                    snackbarHostState.currentSnackbarData?.dismiss()
+                    val result = snackbarHostState.showSnackbar(
+                        message = "تم حذف ${effect.item.title}",
+                        actionLabel = "تراجع",
+                        duration = SnackbarDuration.Short
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        viewModel.handleIntent(ExpenseIntent.RestoreExpense(effect.item))
+                    }
                 }
                 else -> {}
             }
@@ -155,6 +172,14 @@ fun DashboardScreen(
                 BudgetRadarCard(
                     todayTotal = state.todayTotal,
                     weeklyTotal = state.weeklyTotal,
+                    weeklyBudget = state.weeklyBudget,
+                    currency = state.activeCurrency
+                )
+            }
+
+            item {
+                WeeklySpendingChart(
+                    expenses = state.recentExpenses,
                     weeklyBudget = state.weeklyBudget,
                     currency = state.activeCurrency
                 )
@@ -291,7 +316,7 @@ private fun DashboardTopBar(
                 Text(
                     text = "تتبع المصاريف بالصوت • محلي 100%",
                     color = RaqeemColors.TextTertiary,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Normal
                 )
             }
@@ -305,7 +330,7 @@ private fun DashboardTopBar(
             // Export button with tactile ripple
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(RaqeemColors.SurfaceElevated)
                     .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
@@ -325,7 +350,7 @@ private fun DashboardTopBar(
             // Keyboard / Quick entry button with tactile ripple & min touch target
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(RaqeemColors.SurfaceElevated)
                     .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
@@ -399,13 +424,13 @@ private fun ExportReportSheet(
 
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .background(RaqeemColors.SurfaceElevated)
                         .clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center
                 ) {
-                    RaqeemIcons.Close(size = 16.dp, tint = RaqeemColors.TextSecondary)
+                    RaqeemIcons.Close(size = 18.dp, tint = RaqeemColors.TextSecondary)
                 }
             }
 
@@ -472,7 +497,7 @@ private fun ExportFormatCard(
                     Text(
                         text = badgeText,
                         color = badgeColor,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }

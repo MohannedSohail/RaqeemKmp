@@ -8,6 +8,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import org.mohtech.app.core.haptics.LocalRaqeemHaptics
+import org.mohtech.app.core.haptics.rememberRaqeemHaptics
 
 private val DarkColorScheme = darkColorScheme(
     primary = RaqeemColors.EmeraldGreen,
@@ -34,9 +36,12 @@ fun RaqeemTheme(
     val cairoFont = getCairoFontFamily()
     val typography = remember(cairoFont) { createRaqeemTypography(cairoFont) }
 
-    // Enforce Arabic RTL globally
+    val haptics = rememberRaqeemHaptics()
+
+    // Enforce Arabic RTL globally and provide RaqeemHaptics
     CompositionLocalProvider(
-        LocalLayoutDirection provides LayoutDirection.Rtl
+        LocalLayoutDirection provides LayoutDirection.Rtl,
+        LocalRaqeemHaptics provides haptics
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

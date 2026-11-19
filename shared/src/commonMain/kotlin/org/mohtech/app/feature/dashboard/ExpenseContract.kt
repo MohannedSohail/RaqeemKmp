@@ -53,6 +53,7 @@ sealed interface ExpenseIntent {
     data class ParseBankSms(val smsBody: String) : ExpenseIntent
     data class ConfirmBatch(val batch: ExpenseBatch) : ExpenseIntent
     data class DeleteExpense(val expenseId: String) : ExpenseIntent
+    data class RestoreExpense(val item: ExpenseItem) : ExpenseIntent
     data class EditExpense(val item: ExpenseItem) : ExpenseIntent
     data class FilterByCategory(val category: ExpenseCategory?) : ExpenseIntent
     data class UpdateWeeklyBudget(val budget: Double) : ExpenseIntent
@@ -65,6 +66,7 @@ sealed interface ExpenseIntent {
 
 sealed interface ExpenseEffect {
     data class ShowToast(val message: String) : ExpenseEffect
+    data class ShowUndoSnackbar(val item: ExpenseItem) : ExpenseEffect
     data object TriggerHapticFeedback : ExpenseEffect
     data object RequestMicPermission : ExpenseEffect
     data class NavigateToDetails(val expenseId: String) : ExpenseEffect

@@ -1,5 +1,7 @@
 package org.mohtech.app.feature.dashboard.ui
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,23 +22,35 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.mohtech.app.core.haptics.HapticFeedbackType
+import org.mohtech.app.core.haptics.LocalRaqeemHaptics
 import org.mohtech.app.core.theme.RaqeemColors
 import org.mohtech.app.core.ui.RaqeemIcons
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExpenseHistorySection(
     expenses: List<ExpenseItem>,
@@ -45,6 +60,8 @@ fun ExpenseHistorySection(
     modifier: Modifier = Modifier,
     onEditExpense: (ExpenseItem) -> Unit = {}
 ) {
+    val haptics = LocalRaqeemHaptics.current
+
     Column(modifier = modifier) {
         // Section Header
         Row(
@@ -99,13 +116,83 @@ fun ExpenseHistorySection(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 expenses.forEach { item ->
-                    ExpenseItemCard(
-                        item = item,
-                        onClick = { onEditExpense(item) },
-                        onDelete = { onDeleteExpense(item.id) }
-                    )
+                    key(item.id) {
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            positionalThreshold = { totalDistance -> totalDistance * 0.40f },
+                            confirmValueChange = { value ->
+                                if (value == SwipeToDismissBoxValue.StartToEnd || value == SwipeToDismissBoxValue.EndToStart) {
+                                    onDeleteExpense(item.id)
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                        )
+
+                        val isThresholdReached = dismissState.targetValue != SwipeToDismissBoxValue.Settled
+                        LaunchedEffect(isThresholdReached) {
+                            if (isThresholdReached) {
+                                haptics.trigger(HapticFeedbackType.WarningAlert)
+                            }
+                        }
+
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                DismissBackground(dismissState)
+                            },
+                            enableDismissFromStartToEnd = true,
+                            enableDismissFromEndToStart = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .animateContentSize()
+                        ) {
+                            ExpenseItemCard(
+                                item = item,
+                                onClick = { onEditExpense(item) },
+                                onDelete = { onDeleteExpense(item.id) }
+                            )
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DismissBackground(dismissState: SwipeToDismissBoxState) {
+    val alignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
+        Alignment.CenterStart
+    } else {
+        Alignment.CenterEnd
+    }
+    val isThresholdReached = dismissState.targetValue != SwipeToDismissBoxValue.Settled
+    val scale by animateFloatAsState(
+        targetValue = if (isThresholdReached) 1.25f else 0.85f,
+        label = "trashScale"
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (dismissState.progress > 0.05f) 1f else 0f,
+        label = "trashAlpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(16.dp))
+            .background(RaqeemColors.CoralRose)
+            .padding(horizontal = 24.dp),
+        contentAlignment = alignment
+    ) {
+        Box(
+            modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale, alpha = alpha)
+        ) {
+            RaqeemIcons.Trash(
+                size = 20.dp,
+                tint = RaqeemColors.TextPrimary
+            )
         }
     }
 }
@@ -117,6 +204,8 @@ private fun CategoryChip(
     categoryColor: Color,
     onClick: () -> Unit
 ) {
+    val haptics = LocalRaqeemHaptics.current
+
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
@@ -129,7 +218,10 @@ private fun CategoryChip(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(bounded = true, color = categoryColor),
-                onClick = onClick
+                onClick = {
+                    haptics.trigger(HapticFeedbackType.LightTick)
+                    onClick()
+                }
             )
             .padding(horizontal = 12.dp, vertical = 7.dp)
     ) {
@@ -213,7 +305,7 @@ private fun ExpenseItemCard(
                         Text(
                             text = item.category.arabicTitle,
                             color = RaqeemColors.TextTertiary,
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Normal
                         )
 
@@ -223,7 +315,7 @@ private fun ExpenseItemCard(
                             Text(
                                 text = "• دفعها ${item.payer.name}",
                                 color = RaqeemColors.AmberWarning,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         } else if (item.split != null) {
@@ -231,7 +323,7 @@ private fun ExpenseItemCard(
                             Text(
                                 text = "• حصتك ${item.split.amountPerPerson} ${item.currency}",
                                 color = RaqeemColors.ElectricCyan,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         }

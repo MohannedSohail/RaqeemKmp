@@ -421,6 +421,93 @@ class ExpenseViewModelTest {
     }
 
     @Test
+    fun testDeleteExpenseEmitsShowUndoSnackbarEffect() = runTest(testDispatcher) {
+        val collectedEffects = mutableListOf<ExpenseEffect>()
+        val effectsJob = launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.effects.collect { collectedEffects.add(it) }
+        }
+        advanceUntilIdle()
+
+        viewModel.handleIntent(ExpenseIntent.ParseManualSpeechText("غداء بخمسين شيكل"))
+        advanceUntilIdle()
+        val batch = viewModel.uiState.value.reviewSheetPendingBatch!!
+        viewModel.handleIntent(ExpenseIntent.ConfirmBatch(batch))
+        advanceUntilIdle()
+
+        val itemToDelete = viewModel.uiState.value.recentExpenses.first()
+        viewModel.handleIntent(ExpenseIntent.DeleteExpense(itemToDelete.id))
+        advanceUntilIdle()
+
+        val undoEffect = collectedEffects.filterIsInstance<ExpenseEffect.ShowUndoSnackbar>().firstOrNull()
+        assertNotNull(undoEffect, "Deleting an expense must emit ExpenseEffect.ShowUndoSnackbar")
+        assertEquals(itemToDelete.id, undoEffect.item.id)
+        assertEquals(itemToDelete.title, undoEffect.item.title)
+        assertEquals(itemToDelete.amount, undoEffect.item.amount)
+
+        effectsJob.cancel()
+    }
+
+    @Test
+    fun testRestoreExpenseRestoresDeletedItemAndRecalculatesTotals() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        viewModel.handleIntent(ExpenseIntent.ParseManualSpeechText("بنزين بـ 70 شيكل"))
+        advanceUntilIdle()
+        val batch = viewModel.uiState.value.reviewSheetPendingBatch!!
+        viewModel.handleIntent(ExpenseIntent.ConfirmBatch(batch))
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.recentExpenses.size)
+        assertEquals(70.0, viewModel.uiState.value.todayTotal)
+        val originalItem = viewModel.uiState.value.recentExpenses.first()
+
+        // Delete item
+        viewModel.handleIntent(ExpenseIntent.DeleteExpense(originalItem.id))
+        advanceUntilIdle()
+        assertEquals(0, viewModel.uiState.value.recentExpenses.size)
+        assertEquals(0.0, viewModel.uiState.value.todayTotal)
+
+        // Restore item via Undo
+        viewModel.handleIntent(ExpenseIntent.RestoreExpense(originalItem))
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.recentExpenses.size, "Restored expense must reappear in recentExpenses")
+        assertEquals(originalItem.id, viewModel.uiState.value.recentExpenses.first().id)
+        assertEquals(originalItem.title, viewModel.uiState.value.recentExpenses.first().title)
+        assertEquals(70.0, viewModel.uiState.value.todayTotal, "Today's total must be restored")
+    }
+
+    @Test
+    fun testRestoreExpensePreservesPayerAndSplitFidelity() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        // Colloquial Arabic text with split
+        viewModel.handleIntent(ExpenseIntent.ParseManualSpeechText("عشاء بستين شيكل بيني وبين أحمد"))
+        advanceUntilIdle()
+        val batch = viewModel.uiState.value.reviewSheetPendingBatch!!
+        viewModel.handleIntent(ExpenseIntent.ConfirmBatch(batch))
+        advanceUntilIdle()
+
+        val originalItem = viewModel.uiState.value.recentExpenses.first()
+        val originalSplit = originalItem.split
+        assertNotNull(originalSplit, "Item should have split configuration")
+
+        // Delete
+        viewModel.handleIntent(ExpenseIntent.DeleteExpense(originalItem.id))
+        advanceUntilIdle()
+        assertEquals(0, viewModel.uiState.value.recentExpenses.size)
+
+        // Restore
+        viewModel.handleIntent(ExpenseIntent.RestoreExpense(originalItem))
+        advanceUntilIdle()
+
+        val restoredItem = viewModel.uiState.value.recentExpenses.first()
+        val restoredSplit = restoredItem.split
+        assertNotNull(restoredSplit, "Restored item must preserve split")
+        assertEquals(originalSplit.totalAmount, restoredSplit.totalAmount)
+        assertEquals(originalSplit.amountPerPerson, restoredSplit.amountPerPerson)
+        assertEquals(originalItem.payer.name, restoredItem.payer.name)
+    }
+
+    @Test
     fun testDismissReviewSheetAndDismissFallbackSheet() = runTest(testDispatcher) {
         advanceUntilIdle()
         viewModel.handleIntent(ExpenseIntent.ParseManualSpeechText("قهوة بعشرة شيكل"))

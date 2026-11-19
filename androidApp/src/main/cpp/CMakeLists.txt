@@ -55,3 +55,4 @@ target_include_directories(whisper PRIVATE
     ${WHISPER_LIB_DIR}/ggml/src
     ${WHISPER_LIB_DIR}/ggml/src/ggml-cpu
 )
+

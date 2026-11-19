@@ -137,3 +137,4 @@ Java_org_mohtech_app_ai_whisper_AndroidLocalSpeechTranscriber_fullTranscribe(
 }
 
 } // extern "C"
+
