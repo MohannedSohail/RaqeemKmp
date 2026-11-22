@@ -647,6 +647,7 @@ class ExpenseViewModelTest {
         val state = whisperVm.uiState.value
         assertFalse(state.isRecording)
         assertNull(state.reviewSheetPendingBatch)
+        assertTrue(state.showFallbackManualSheet, "Expected fallback manual sheet to open on EmptyResult")
         val hasMessage = state.userErrorMessage != null ||
             collectedEffects.any { it is ExpenseEffect.ShowToast }
         assertTrue(hasMessage, "Expected toast or userErrorMessage to be shown when EmptyResult occurs")
@@ -675,10 +676,10 @@ class ExpenseViewModelTest {
 
         val state = whisperVm.uiState.value
         assertFalse(state.isRecording)
+        assertTrue(state.showFallbackManualSheet, "Expected fallback manual sheet to open on AudioCapture error")
         val hasErrorFeedback = state.userErrorMessage != null ||
-            state.showFallbackManualSheet ||
             collectedEffects.any { it is ExpenseEffect.ShowToast }
-        assertTrue(hasErrorFeedback, "Expected user error message, toast, or fallback sheet on AudioCapture error")
+        assertTrue(hasErrorFeedback, "Expected user error message or toast on AudioCapture error")
         effectsJob.cancel()
     }
 
@@ -700,6 +701,7 @@ class ExpenseViewModelTest {
 
         val state = whisperVm.uiState.value
         assertFalse(state.isRecording)
+        assertTrue(state.showFallbackManualSheet, "Expected fallback manual sheet to open on PermissionDenied")
         assertTrue(
             state.showPermissionRationaleDialog || state.showPermissionRationaleSheet,
             "Expected microphone permission rationale sheet/dialog to be displayed"

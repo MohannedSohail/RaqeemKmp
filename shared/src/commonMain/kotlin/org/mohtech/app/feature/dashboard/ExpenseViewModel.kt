@@ -46,6 +46,7 @@ class ExpenseViewModel(
 ) : ViewModel() {
 
     private var processingJob: kotlinx.coroutines.Job? = null
+    private var recordingStartTimeMs: Long = 0L
 
     private val _uiState = MutableStateFlow(
         ExpenseUiState(
@@ -169,29 +170,22 @@ class ExpenseViewModel(
 
             if (audioRecorder != null || transcriber != null) {
                 if (transcriber?.isModelReady() == false) {
-                    _uiState.update {
-                        it.copy(
-                            isRecording = false,
-                            showFallbackManualSheet = true
-                        )
-                    }
+                    handleSpeechError(SpeechError.ModelMissing)
                     return@launch
                 }
                 if (audioRecorder == null) {
-                    _uiState.update {
-                        it.copy(
-                            isRecording = false,
-                            showFallbackManualSheet = true
-                        )
-                    }
+                    handleSpeechError(SpeechError.AudioCapture)
                     return@launch
                 }
 
+                recordingStartTimeMs = Clock.System.now().toEpochMilliseconds()
                 _uiState.update {
                     it.copy(
                         isRecording = true,
                         recordingAmplitude = 0f,
-                        userErrorMessage = null
+                        userErrorMessage = null,
+                        showFallbackManualSheet = false,
+                        reviewSheetPendingBatch = null
                     )
                 }
 
@@ -208,20 +202,18 @@ class ExpenseViewModel(
 
             val engine = voiceEngine
             if (engine == null || !engine.isAvailable()) {
-                _uiState.update {
-                    it.copy(
-                        isRecording = false,
-                        showFallbackManualSheet = true
-                    )
-                }
+                handleSpeechError(SpeechError.ModelMissing)
                 return@launch
             }
 
+            recordingStartTimeMs = Clock.System.now().toEpochMilliseconds()
             _uiState.update {
                 it.copy(
                     isRecording = true,
                     recordingAmplitude = 0f,
-                    userErrorMessage = null
+                    userErrorMessage = null,
+                    showFallbackManualSheet = false,
+                    reviewSheetPendingBatch = null
                 )
             }
 
@@ -233,7 +225,16 @@ class ExpenseViewModel(
                         parseManualSpeechText(text)
                         _uiState.update { it.copy(processingStage = ProcessingStage.READY) }
                     } else {
-                        _uiState.update { it.copy(processingStage = ProcessingStage.IDLE) }
+                        _uiState.update {
+                            it.copy(
+                                isRecording = false,
+                                recordingAmplitude = 0f,
+                                processingStage = ProcessingStage.IDLE,
+                                showFallbackManualSheet = true,
+                                reviewSheetPendingBatch = null,
+                                userErrorMessage = "لم يتم التقاط أي كلام، يمكنك إدخال المصروف يدوياً"
+                            )
+                        }
                         viewModelScope.launch {
                             _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
                         }
@@ -243,12 +244,19 @@ class ExpenseViewModel(
                     updateAmplitude(amp)
                 },
                 onError = { error ->
-                    _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+                    _uiState.update {
+                        it.copy(
+                            isRecording = false,
+                            recordingAmplitude = 0f,
+                            processingStage = ProcessingStage.IDLE,
+                            showFallbackManualSheet = true,
+                            reviewSheetPendingBatch = null
+                        )
+                    }
                     when (error) {
                         "PERMISSION_DENIED" -> {
                             _uiState.update {
                                 it.copy(
-                                    showFallbackManualSheet = true,
                                     showPermissionRationaleDialog = true,
                                     showPermissionRationaleSheet = true
                                 )
@@ -259,7 +267,11 @@ class ExpenseViewModel(
                             }
                         }
                         "NO_MATCH" -> {
-                            _uiState.update { it.copy(userErrorMessage = "لم يتم التقاط أي كلام، حاول مجدداً") }
+                            _uiState.update {
+                                it.copy(
+                                    userErrorMessage = "لم يتم التقاط أي كلام، يمكنك إدخال المصروف يدوياً"
+                                )
+                            }
                             viewModelScope.launch {
                                 _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
                             }
@@ -267,7 +279,6 @@ class ExpenseViewModel(
                         else -> {
                             _uiState.update {
                                 it.copy(
-                                    showFallbackManualSheet = true,
                                     userErrorMessage = "تعذر التعرف على الصوت محلياً"
                                 )
                             }
@@ -286,12 +297,24 @@ class ExpenseViewModel(
 
         if (audioRecorder != null || transcriber != null) {
             val recorder = audioRecorder
-            val pcm = recorder?.stopRecording()
-            _uiState.update {
-                it.copy(
-                    isRecording = false,
-                    recordingAmplitude = 0f
-                )
+            var audioCaptureFailed = false
+            val pcm: ShortArray? = try {
+                recorder?.stopRecording()
+            } catch (_: Throwable) {
+                audioCaptureFailed = true
+                null
+            } finally {
+                _uiState.update {
+                    it.copy(
+                        isRecording = false,
+                        recordingAmplitude = 0f
+                    )
+                }
+            }
+
+            if (audioCaptureFailed) {
+                handleSpeechError(SpeechError.AudioCapture)
+                return
             }
 
             if (pcm == null || pcm.isEmpty()) {
@@ -301,8 +324,8 @@ class ExpenseViewModel(
 
             // Apply Voice Activity Detection (VAD) to trim silence and reject empty audio
             val vad = VoiceActivityDetector()
-            val speechPcm = when (val vadResult = vad.process(pcm)) {
-                is VadResult.Speech -> vadResult.trimmedPcm
+            val (speechPcm, speechDurationMs) = when (val vadResult = vad.process(pcm)) {
+                is VadResult.Speech -> vadResult.trimmedPcm to vadResult.speechDurationMs
                 is VadResult.NoSpeech -> {
                     handleSpeechError(SpeechError.EmptyResult)
                     return
@@ -311,9 +334,25 @@ class ExpenseViewModel(
 
             val transcriberEngine = transcriber
             if (transcriberEngine == null) {
-                _uiState.update { it.copy(showFallbackManualSheet = true) }
+                _uiState.update {
+                    it.copy(
+                        processingStage = ProcessingStage.IDLE,
+                        showFallbackManualSheet = true,
+                        reviewSheetPendingBatch = null,
+                        userErrorMessage = "نموذج التفريغ الصوتي غير متوفر"
+                    )
+                }
                 return
             }
+
+            val recordedDurationMs = if (recordingStartTimeMs > 0L) {
+                maxOf(0L, Clock.System.now().toEpochMilliseconds() - recordingStartTimeMs)
+            } else {
+                speechDurationMs
+            }
+            recordingStartTimeMs = 0L
+            val effectiveDurationMs = maxOf(recordedDurationMs, speechDurationMs)
+            val dynamicTimeoutMs = (effectiveDurationMs * 2).coerceIn(5_000L, 15_000L)
 
             processingJob?.cancel()
             processingJob = viewModelScope.launch {
@@ -321,10 +360,26 @@ class ExpenseViewModel(
                 _uiState.update { it.copy(processingStage = ProcessingStage.TRANSCRIBING) }
 
                 try {
-                    val result = transcriberEngine.transcribe(
-                        speechPcm,
-                        WhisperModelConfig(language = "ar", translate = false)
-                    )
+                    val result = kotlinx.coroutines.withTimeoutOrNull(dynamicTimeoutMs) {
+                        transcriberEngine.transcribe(
+                            speechPcm,
+                            WhisperModelConfig(language = "ar", translate = false)
+                        )
+                    }
+
+                    if (result == null) {
+                        _uiState.update {
+                            it.copy(
+                                processingStage = ProcessingStage.IDLE,
+                                showFallbackManualSheet = true,
+                                reviewSheetPendingBatch = null,
+                                userErrorMessage = "استغرقت المعالجة وقتاً أطول من المتوقع، يمكنك إدخال المصروف يدوياً"
+                            )
+                        }
+                        _effects.emit(ExpenseEffect.ShowToast("استغرقت المعالجة وقتاً أطول من المتوقع"))
+                        return@launch
+                    }
+
                     when (result) {
                         is TranscribeResult.Success -> {
                             if (result.text.isNotBlank()) {
@@ -354,6 +409,8 @@ class ExpenseViewModel(
                             handleSpeechError(result.error)
                         }
                     }
+                } catch (ce: kotlinx.coroutines.CancellationException) {
+                    throw ce
                 } catch (t: Throwable) {
                     handleSpeechError(SpeechError.Unknown(t.message ?: "Transcription failed"))
                 }
@@ -363,8 +420,12 @@ class ExpenseViewModel(
 
         val engine = voiceEngine
         if (engine != null) {
-            engine.stopListening()
-            _uiState.update { it.copy(isRecording = false) }
+            try {
+                engine.stopListening()
+            } catch (_: Throwable) {
+            } finally {
+                _uiState.update { it.copy(isRecording = false) }
+            }
             return
         }
     }
@@ -372,6 +433,15 @@ class ExpenseViewModel(
     private fun cancelProcessing() {
         processingJob?.cancel()
         processingJob = null
+        recordingStartTimeMs = 0L
+        try {
+            if (audioRecorder?.isRecording() == true) {
+                audioRecorder.stopRecording()
+            }
+        } catch (_: Throwable) {}
+        try {
+            voiceEngine?.stopListening()
+        } catch (_: Throwable) {}
         _uiState.update {
             it.copy(
                 processingStage = ProcessingStage.IDLE,
@@ -387,7 +457,9 @@ class ExpenseViewModel(
             it.copy(
                 isRecording = false,
                 recordingAmplitude = 0f,
-                processingStage = ProcessingStage.IDLE
+                processingStage = ProcessingStage.IDLE,
+                showFallbackManualSheet = true,
+                reviewSheetPendingBatch = null
             )
         }
         when (error) {
@@ -405,16 +477,34 @@ class ExpenseViewModel(
                 }
             }
             is SpeechError.ModelMissing -> {
-                _uiState.update { it.copy(showFallbackManualSheet = true) }
+                _uiState.update {
+                    it.copy(
+                        showFallbackManualSheet = true,
+                        userErrorMessage = "نموذج التعرف الصوتي غير متوفر"
+                    )
+                }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast("نموذج التعرف الصوتي غير متوفر"))
+                }
             }
             is SpeechError.EmptyResult -> {
-                _uiState.update { it.copy(userErrorMessage = "لم يتم التقاط أي كلام، حاول مجدداً") }
+                _uiState.update {
+                    it.copy(
+                        showFallbackManualSheet = true,
+                        userErrorMessage = "لم يتم التقاط أي كلام، يمكنك إدخال المصروف يدوياً"
+                    )
+                }
                 viewModelScope.launch {
                     _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
                 }
             }
             is SpeechError.AudioCapture -> {
-                _uiState.update { it.copy(userErrorMessage = "تعذر تسجيل الصوت من الميكروفون") }
+                _uiState.update {
+                    it.copy(
+                        showFallbackManualSheet = true,
+                        userErrorMessage = "تعذر تسجيل الصوت من الميكروفون"
+                    )
+                }
                 viewModelScope.launch {
                     _effects.emit(ExpenseEffect.ShowToast("تعذر تسجيل الصوت من الميكروفون"))
                 }
@@ -431,21 +521,37 @@ class ExpenseViewModel(
                 }
             }
             is SpeechError.TranscriptionFailed -> {
-                _uiState.update { it.copy(userErrorMessage = "فشلت عملية معالجة الصوت") }
+                _uiState.update {
+                    it.copy(
+                        showFallbackManualSheet = true,
+                        userErrorMessage = "فشلت عملية معالجة الصوت"
+                    )
+                }
                 viewModelScope.launch {
                     _effects.emit(ExpenseEffect.ShowToast("فشلت عملية معالجة الصوت"))
                 }
             }
             is SpeechError.OutOfMemory -> {
-                _uiState.update { it.copy(userErrorMessage = "ذاكرة الجهاز غير كافية لمعالجة الصوت") }
+                _uiState.update {
+                    it.copy(
+                        showFallbackManualSheet = true,
+                        userErrorMessage = "ذاكرة الجهاز غير كافية لمعالجة الصوت"
+                    )
+                }
                 viewModelScope.launch {
                     _effects.emit(ExpenseEffect.ShowToast("ذاكرة الجهاز غير كافية لمعالجة الصوت"))
                 }
             }
             is SpeechError.Unknown -> {
-                _uiState.update { it.copy(userErrorMessage = error.message) }
+                val msg = error.message.ifBlank { "حدث خطأ غير متوقع أثناء المعالجة" }
+                _uiState.update {
+                    it.copy(
+                        showFallbackManualSheet = true,
+                        userErrorMessage = msg
+                    )
+                }
                 viewModelScope.launch {
-                    _effects.emit(ExpenseEffect.ShowToast(error.message))
+                    _effects.emit(ExpenseEffect.ShowToast(msg))
                 }
             }
         }
@@ -842,7 +948,12 @@ class ExpenseViewModel(
     }
 
     private fun openManualSheet() {
-        _uiState.update { it.copy(showFallbackManualSheet = true) }
+        _uiState.update {
+            it.copy(
+                showFallbackManualSheet = true,
+                reviewSheetPendingBatch = null
+            )
+        }
     }
 
     private fun dismissReviewSheet() {
@@ -874,8 +985,24 @@ class ExpenseViewModel(
 
     public override fun onCleared() {
         super.onCleared()
-        voiceEngine?.release()
-        transcriber?.release()
-        audioRecorder?.release()
+        processingJob?.cancel()
+        processingJob = null
+        recordingStartTimeMs = 0L
+        try {
+            if (audioRecorder?.isRecording() == true) {
+                audioRecorder.stopRecording()
+            }
+        } catch (_: Throwable) {
+        } finally {
+            try {
+                audioRecorder?.release()
+            } catch (_: Throwable) {}
+        }
+        try {
+            voiceEngine?.release()
+        } catch (_: Throwable) {}
+        try {
+            transcriber?.release()
+        } catch (_: Throwable) {}
     }
 }

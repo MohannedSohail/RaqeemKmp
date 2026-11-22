@@ -8,7 +8,8 @@ package org.mohtech.app.ai.whisper
 class FakeTranscriber(
     var shouldFailWith: SpeechError? = null,
     var transcribeResultText: String = "قهوة بعشرة شيكل",
-    var isModelReadyState: Boolean = true
+    var isModelReadyState: Boolean = true,
+    var delayMs: Long = 0L
 ) : LocalSpeechTranscriber {
 
     var transcribeCount: Int = 0
@@ -34,6 +35,10 @@ class FakeTranscriber(
         transcribeCount++
         lastTranscribedPcm = pcm16kMono
         lastConfig = config
+
+        if (delayMs > 0) {
+            kotlinx.coroutines.delay(delayMs)
+        }
 
         val failure = shouldFailWith
         if (failure != null) {
