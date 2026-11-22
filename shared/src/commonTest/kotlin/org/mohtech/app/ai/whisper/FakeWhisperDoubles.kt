@@ -56,13 +56,23 @@ class FakeTranscriber(
     }
 }
 
+fun generateSyntheticSpeechPcm(durationMs: Int = 1000, amplitude: Short = 16000): ShortArray {
+    val totalSamples = (16000 * durationMs) / 1000
+    val pcm = ShortArray(totalSamples)
+    for (i in 0 until totalSamples) {
+        val angle = 2.0 * kotlin.math.PI * 440.0 * (i.toDouble() / 16000.0)
+        pcm[i] = (kotlin.math.sin(angle) * amplitude).toInt().toShort()
+    }
+    return pcm
+}
+
 /**
  * FakeAudioRecorder:
  * Deterministic test double implementing [RawAudioRecorder] for isolated unit testing.
  * Simulates PCM 16kHz mono audio recording lifecycle and amplitude events without hardware mic contention.
  */
 class FakeAudioRecorder(
-    var recordedPcm: ShortArray? = ShortArray(16000) { 100 },
+    var recordedPcm: ShortArray? = generateSyntheticSpeechPcm(),
     var errorToEmitOnStart: SpeechError? = null
 ) : RawAudioRecorder {
 

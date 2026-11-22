@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>Raqeem Motion Graphics Video Engine</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #060911;
+    overflow: hidden;
+    font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+  }
+  #canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas" width="1080" height="1920"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+const WIDTH = 1080;
+const HEIGHT = 1920;
+const DURATION = 21.5; // seconds
+const FPS = 30;
+
+// Colors
+const C_BG_DARK = '#0B0F19';
+const C_BG_SURFACE = '#151D2F';
+const C_EMERALD = '#00C48C';
+const C_CYAN = '#22D3EE';
+const C_TEXT_WHITE = '#FFFFFF';
+const C_TEXT_MUTED = '#94A3B8';
+const C_CARD_BORDER = 'rgba(255, 255, 255, 0.08)';
+
+// Particles
+const particles = [];
+for (let i = 0; i < 45; i++) {
+  particles.push({
+    x: Math.random() * WIDTH,
+    y: Math.random() * HEIGHT,
+    r: Math.random() * 2.5 + 1.0,
+    vx: (Math.random() - 0.5) * 0.4,
+    vy: (Math.random() - 0.5) * 0.6,
+    alpha: Math.random() * 0.4 + 0.1
+  });
+}
+
+// Easing functions
+function easeOutQuad(x) { return 1 - (1 - x) * (1 - x); }
+function easeInOutQuad(x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function easeOutBack(x) {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+}
+function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
+
+// Background rendering with dynamic glow
+function drawBackground(t) {
+  // Base dark gradient
+  const grad = ctx.createRadialGradient(WIDTH/2, HEIGHT/2, 100, WIDTH/2, HEIGHT/2, 1100);
+  grad.addColorStop(0, '#111827');
+  grad.addColorStop(0.6, '#0B0F19');
+  grad.addColorStop(1, '#05070D');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  // Animated emerald & cyan accent glows
+  const g1 = ctx.createRadialGradient(
+    WIDTH/2 + Math.sin(t * 1.2) * 200,
+    300 + Math.cos(t * 0.9) * 100,
+    20,
+    WIDTH/2 + Math.sin(t * 1.2) * 200,
+    300 + Math.cos(t * 0.9) * 100,
+    550
+  );
+  g1.addColorStop(0, 'rgba(0, 196, 140, 0.12)');
+  g1.addColorStop(1, 'rgba(0, 196, 140, 0)');
+  ctx.fillStyle = g1;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  // Ambient particles
+  for (const p of particles) {
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.x < 0) p.x = WIDTH;
+    if (p.x > WIDTH) p.x = 0;
+    if (p.y < 0) p.y = HEIGHT;
+    if (p.y > HEIGHT) p.y = 0;
+
+    ctx.fillStyle = `rgba(34, 211, 238, ${p.alpha})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Smartphone mockup frame
+function drawPhoneMockup(centerX, centerY, width, height, t, renderScreenContent) {
+  ctx.save();
+  ctx.translate(centerX, centerY);
+
+  // Drop shadow
+  ctx.shadowColor = 'rgba(0, 196, 140, 0.15)';
+  ctx.shadowBlur = 40;
+  ctx.shadowOffsetY = 20;
+
+  // Outer bezel
+  ctx.fillStyle = '#080C14';
+  roundRect(ctx, -width/2, -height/2, width, height, 48);
+  ctx.fill();
+
+  // Reset shadow
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+
+  // Hairline metallic border
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 2;
+  roundRect(ctx, -width/2, -height/2, width, height, 48);
+  ctx.stroke();
+
+  // Screen clipping mask
+  ctx.save();
+  roundRect(ctx, -width/2 + 10, -height/2 + 10, width - 20, height - 20, 40);
+  ctx.clip();
+
+  // Screen background
+  ctx.fillStyle = '#0E131F';
+  ctx.fillRect(-width/2 + 10, -height/2 + 10, width - 20, height - 20);
+
+  // Status Bar
+  ctx.fillStyle = C_TEXT_MUTED;
+  ctx.font = '600 20px Cairo';
+  ctx.textAlign = 'right';
+  ctx.fillText('9:41', width/2 - 40, -height/2 + 45);
+
+  // Dynamic Island
+  ctx.fillStyle = '#000000';
+  roundRect(ctx, -65, -height/2 + 22, 130, 26, 13);
+  ctx.fill();
+
+  // Render internal screen content
+  renderScreenContent(ctx, width - 20, height - 20, t);
+
+  ctx.restore(); // end clip
+  ctx.restore(); // end translate
+}
+
+function roundRect(c, x, y, w, h, r) {
+  if (w < 2 * r) r = w / 2;
+  if (h < 2 * r) r = h / 2;
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+// -------------------------------------------------------------
+// SCENE 1: Voice Recording & Instant Transcription (0.0s - 4.5s)
+// -------------------------------------------------------------
+function renderScene1(t) {
+  const p = t / 4.5;
+  const alpha = p < 0.15 ? p / 0.15 : (p > 0.85 ? (1 - p) / 0.15 : 1.0);
+
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+
+  // Top Kinetic Headline
+  ctx.fillStyle = C_TEXT_WHITE;
+  ctx.font = '800 48px Cairo';
+  ctx.textAlign = 'center';
+  ctx.fillText('تحدث بطبيعتك.. ورقيم يُحصي نفقاتك', WIDTH/2, 180);
+
+  ctx.fillStyle = C_EMERALD;
+  ctx.font = '700 28px Cairo';
+  ctx.fillText('محرك ذكاء صوتي محلي 100% دون إنترنت', WIDTH/2, 235);
+
+  // Phone Frame
+  drawPhoneMockup(WIDTH/2, 1080, 720, 1380, t, (sCtx, sw, sh) => {
+    // Top Bar in App
+    sCtx.fillStyle = C_TEXT_WHITE;
+    sCtx.font = '800 28px Cairo';
+    sCtx.textAlign = 'right';
+    sCtx.fillText('رقيم', sw/2 - 30, -sh/2 + 95);
+
+    sCtx.fillStyle = C_EMERALD;
+    sCtx.font = '600 18px Cairo';
+    sCtx.fillText('أوفلاين 100%', sw/2 - 100, -sh/2 + 95);
+
+    // Audio Wave Rings if recording (from 1.5s to 3.8s)
+    const isRecording = t >= 1.5;
+    if (isRecording) {
+      const recTime = t - 1.5;
+      // 3 Expanding radar waves
+      for (let r = 0; r < 3; r++) {
+        const waveScale = (recTime * 1.5 + r * 0.4) % 1.5;
+        const waveAlpha = Math.max(0, 1 - waveScale);
+        sCtx.strokeStyle = `rgba(0, 196, 140, ${waveAlpha * 0.4})`;
+        sCtx.lineWidth = 3;
+        sCtx.beginPath();
+        sCtx.arc(0, 80, 80 + waveScale * 140, 0, Math.PI * 2);
+        sCtx.stroke();
+      }
+
+      // Voice Wave Equalizer Bars
+      const numBars = 24;
+      const barW = 8;
+      const spacing = 14;
+      const startX = -(numBars * spacing) / 2;
+      for (let b = 0; b < numBars; b++) {
+        const barH = 15 + Math.abs(Math.sin(recTime * 8 + b * 0.4)) * 75;
+        const barGrad = sCtx.createLinearGradient(0, -barH, 0, barH);
+        barGrad.addColorStop(0, C_CYAN);
+        barGrad.addColorStop(1, C_EMERALD);
+        sCtx.fillStyle = barGrad;
+        roundRect(sCtx, startX + b * spacing, -120 - barH/2, barW, barH, 4);
+        sCtx.fill();
+      }
+
+      // Live Speech Transcript Bubble
+      const phrase = "بنزين بـ 50 شيكل";
+      const charCount = Math.min(phrase.length, Math.floor(recTime * 9));
+      const partialText = phrase.substring(0, charCount);
+
+      sCtx.fillStyle = 'rgba(24, 32, 50, 0.95)';
+      roundRect(sCtx, -sw/2 + 35, -230, sw - 70, 75, 20);
+      sCtx.fill();
+      sCtx.strokeStyle = 'rgba(0, 196, 140, 0.3)';
+      sCtx.lineWidth = 1.5;
+      sCtx.stroke();
+
+      sCtx.fillStyle = C_TEXT_WHITE;
+      sCtx.font = '700 24px Cairo';
+      sCtx.textAlign = 'center';
+      sCtx.fillText(`«${partialText}»`, 0, -182);
+    }
+
+    // Microphone Pulse Button
+    const btnScale = isRecording ? 1.0 + Math.sin(t * 10) * 0.05 : 1.0;
+    sCtx.save();
+    sCtx.translate(0, 80);
+    sCtx.scale(btnScale, btnScale);
+
+    // Glowing mic circle
+    const btnGrad = sCtx.createLinearGradient(-50, -50, 50, 50);
+    btnGrad.addColorStop(0, '#00E5A3');
+    btnGrad.addColorStop(1, '#00A876');
+    sCtx.fillStyle = btnGrad;
+    sCtx.shadowColor = 'rgba(0, 196, 140, 0.5)';
+    sCtx.shadowBlur = 30;
+    sCtx.beginPath();
+    sCtx.arc(0, 0, 55, 0, Math.PI * 2);
+    sCtx.fill();
+    sCtx.shadowBlur = 0;
+
+    // Mic Icon Symbol (drawn with vector lines)
+    sCtx.strokeStyle = '#0E131F';
+    sCtx.lineWidth = 4;
+    sCtx.lineCap = 'round';
+    roundRect(sCtx, -12, -22, 24, 36, 12);
+    sCtx.stroke();
+    sCtx.beginPath();
+    sCtx.arc(0, -4, 20, 0, Math.PI);
+    sCtx.stroke();
+    sCtx.moveTo(0, 16);
+    sCtx.lineTo(0, 26);
+    sCtx.stroke();
+
+    sCtx.restore();
+
+    // Review Bottom Sheet (Slides up after 3.2s)
+    if (t >= 3.2) {
+      const sheetProgress = easeOutBack(Math.min(1.0, (t - 3.2) / 0.7));
+      const sheetY = sh/2 - (sheetProgress * 320);
+
+      sCtx.fillStyle = '#182032';
+      sCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      sCtx.lineWidth = 1.5;
+      roundRect(sCtx, -sw/2 + 20, sheetY, sw - 40, 310, 32);
+      sCtx.fill();
+      sCtx.stroke();
+
+      // Drag pill
+      sCtx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      roundRect(sCtx, -30, sheetY + 15, 60, 5, 2.5);
+      sCtx.fill();
+
+      // Parsed Details
+      sCtx.fillStyle = C_EMERALD;
+      sCtx.font = '800 42px Cairo';
+      sCtx.textAlign = 'right';
+      sCtx.fillText('50.00 ₪', sw/2 - 60, sheetY + 80);
+
+      sCtx.fillStyle = C_TEXT_WHITE;
+      sCtx.font = '700 24px Cairo';
+      sCtx.fillText('بنزين سيارة', sw/2 - 60, sheetY + 120);
+
+      // Category chip
+      sCtx.fillStyle = 'rgba(0, 196, 140, 0.15)';
+      roundRect(sCtx, -sw/2 + 50, sheetY + 50, 130, 42, 21);
+      sCtx.fill();
+      sCtx.fillStyle = C_EMERALD;
+      sCtx.font = '700 18px Cairo';
+      sCtx.textAlign = 'center';
+      sCtx.fillText('مواصلات', -sw/2 + 115, sheetY + 77);
+
+      // Confirm button
+      sCtx.fillStyle = C_EMERALD;
+      roundRect(sCtx, -sw/2 + 50, sheetY + 160, sw - 100, 54, 27);
+      sCtx.fill();
+      sCtx.fillStyle = '#0E131F';
+      sCtx.font = '800 20px Cairo';
+      sCtx.fillText('تأكيد المصروف', 0, sheetY + 195);
+    }
+  });
+
+  // Simulated Touch Pointer
+  if (t < 2.0) {
+    const curP = clamp(t / 1.5, 0, 1);
+    const curX = WIDTH/2 + (1 - curP) * 180;
+    const curY = 1160 + (1 - curP) * 220;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.shadowColor = 'rgba(0, 196, 140, 0.8)';
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(curX, curY, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.restore();
+}
+
+// -------------------------------------------------------------
+// SCENE 2: Shared Expenses Split - "مين دفع ولمن؟" (4.5s - 9.0s)
+// -------------------------------------------------------------
+function renderScene2(t) {
+  const localT = t - 4.5;
+  const p = localT / 4.5;
+  const alpha = p < 0.15 ? p / 0.15 : (p > 0.85 ? (1 - p) / 0.15 : 1.0);
+
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+
+  // Top Headline
+  ctx.fillStyle = C_TEXT_WHITE;
+  ctx.font = '800 48px Cairo';
+  ctx.textAlign = 'center';
+  ctx.fillText('مين دفع ولمن؟ قسمة فورية للقطية', WIDTH/2, 180);
+
+  ctx.fillStyle = C_CYAN;
+  ctx.font = '700 28px Cairo';
+  ctx.fillText('حساب حصص الشركاء وإنهاء حيرة الحسابات', WIDTH/2, 235);
+
+  drawPhoneMockup(WIDTH/2, 1080, 720, 1380, localT, (sCtx, sw, sh) => {
+    // Title
+    sCtx.fillStyle = C_TEXT_WHITE;
+    sCtx.font = '800 26px Cairo';
+    sCtx.textAlign = 'right';
+    sCtx.fillText('السجل والمشاركات', sw/2 - 40, -sh/2 + 95);
+
+    // Voice prompt pill
+    sCtx.fillStyle = 'rgba(34, 211, 238, 0.12)';
+    roundRect(sCtx, -sw/2 + 35, -sh/2 + 130, sw - 70, 70, 20);
+    sCtx.fill();
+    sCtx.fillStyle = C_CYAN;
+    sCtx.font = '700 20px Cairo';
+    sCtx.textAlign = 'center';
+    sCtx.fillText('«عشاء بـ 60 شيكل بيني وبين أحمد على حساب أحمد»', 0, -sh/2 + 172);
+
+    // Split Interaction Card
+    const cardProgress = easeOutBack(Math.min(1.0, localT / 0.8));
+    const cardY = -sh/2 + 250 + (1 - cardProgress) * 60;
+
+    sCtx.fillStyle = '#182032';
+    sCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    sCtx.lineWidth = 1.5;
+    roundRect(sCtx, -sw/2 + 30, cardY, sw - 60, 360, 28);
+    sCtx.fill();
+    sCtx.stroke();
+
+    // Restaurant details
+    sCtx.fillStyle = C_TEXT_WHITE;
+    sCtx.font = '800 28px Cairo';
+    sCtx.textAlign = 'right';
+    sCtx.fillText('عشاء مطعم', sw/2 - 60, cardY + 55);
+
+    sCtx.fillStyle = C_EMERALD;
+    sCtx.font = '800 34px Cairo';
+    sCtx.textAlign = 'left';
+    sCtx.fillText('60.00 ₪', -sw/2 + 60, cardY + 55);
+
+    // Divider
+    sCtx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+    sCtx.beginPath();
+    sCtx.moveTo(-sw/2 + 60, cardY + 85);
+    sCtx.lineTo(sw/2 - 60, cardY + 85);
+    sCtx.stroke();
+
+    // Avatars: Me and Ahmed
+    const avatarY = cardY + 160;
+
+    // Me Avatar
+    sCtx.fillStyle = 'rgba(0, 196, 140, 0.2)';
+    sCtx.beginPath();
+    sCtx.arc(120, avatarY, 40, 0, Math.PI * 2);
+    sCtx.fill();
+    sCtx.fillStyle = C_EMERALD;
+    sCtx.font = '800 22px Cairo';
+    sCtx.textAlign = 'center';
+    sCtx.fillText('أنت', 120, avatarY + 8);
+    sCtx.font = '600 16px Cairo';
+    sCtx.fillStyle = C_TEXT_MUTED;
+    sCtx.fillText('نصيبك: 30 ₪', 120, avatarY + 65);
+
+    // Ahmed Avatar
+    sCtx.fillStyle = 'rgba(34, 211, 238, 0.2)';
+    sCtx.beginPath();
+    sCtx.arc(-120, avatarY, 40, 0, Math.PI * 2);
+    sCtx.fill();
+    sCtx.fillStyle = C_CYAN;
+    sCtx.font = '800 22px Cairo';
+    sCtx.fillText('أحمد', -120, avatarY + 8);
+    sCtx.font = '700 16px Cairo';
+    sCtx.fillStyle = C_EMERALD;
+    sCtx.fillText('الدافع الكامل', -120, avatarY + 65);
+
+    // Center Connection Icon / Split Badge
+    sCtx.strokeStyle = C_EMERALD;
+    sCtx.lineWidth = 2;
+    sCtx.setLineDash([6, 6]);
+    sCtx.beginPath();
+    sCtx.moveTo(-80, avatarY);
+    sCtx.lineTo(80, avatarY);
+    sCtx.stroke();
+    sCtx.setLineDash([]);
+
+    sCtx.fillStyle = '#0E131F';
+    sCtx.strokeStyle = C_EMERALD;
+    roundRect(sCtx, -45, avatarY - 20, 90, 40, 20);
+    sCtx.fill();
+    sCtx.stroke();
+
+    sCtx.fillStyle = C_TEXT_WHITE;
+    sCtx.font = '800 16px Cairo';
+    sCtx.fillText('النص بالنص', 0, avatarY + 6);
+
+    // Settlement Badge Status
+    sCtx.fillStyle = 'rgba(0, 196, 140, 0.15)';
+    roundRect(sCtx, -sw/2 + 60, cardY + 285, sw - 120, 50, 25);
+    sCtx.fill();
+    sCtx.fillStyle = C_EMERALD;
+    sCtx.font = '800 18px Cairo';
+    sCtx.fillText('✓ تم تقييد حصة كل شريك تلقائياً', 0, cardY + 317);
+  });
+
+  ctx.restore();
+}
+
+// -------------------------------------------------------------
+// SCENE 3: Interactive Weekly Reports & 1-Click Export (9.0s - 13.5s)
+// -------------------------------------------------------------
+function renderScene3(t) {
+  const localT = t - 9.0;
+  const p = localT / 4.5;
+  const alpha = p < 0.15 ? p / 0.15 : (p > 0.85 ? (1 - p) / 0.15 : 1.0);
+
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+
+  ctx.fillStyle = C_TEXT_WHITE;
+  ctx.font = '800 48px Cairo';
+  ctx.textAlign = 'center';
+  ctx.fillText('تقارير تفاعلية وتصدير Excel و PDF', WIDTH/2, 180);
+
+  ctx.fillStyle = C_EMERALD;
+  ctx.font = '700 28px Cairo';
+  ctx.fillText('استخراج محلي فوري للمصنفات بنقرة واحدة', WIDTH/2, 235);
+
+  drawPhoneMockup(WIDTH/2, 1080, 720, 1380, localT, (sCtx, sw, sh) => {
+    sCtx.fillStyle = C_TEXT_WHITE;
+    sCtx.font = '800 28px Cairo';
+    sCtx.textAlign = 'right';
+    sCtx.fillText('التقارير الأسبوعية', sw/2 - 40, -sh/2 + 95);
+
+    // Weekly Bar Chart Container
+    const chartY = -sh/2 + 150;
+    sCtx.fillStyle = '#182032';
+    roundRect(sCtx, -sw/2 + 30, chartY, sw - 60, 320, 24);
+    sCtx.fill();
+
+    // Chart Title
+    sCtx.fillStyle = C_TEXT_MUTED;
+    sCtx.font = '600 18px Cairo';
+    sCtx.textAlign = 'right';
+    sCtx.fillText('الإنفاق اليومي (السبت - الجمعة)', sw/2 - 55, chartY + 40);
+
+    // 7 Bar heights with spring animation
+    const days = ['سبت', 'أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة'];
+    const values = [60, 110, 45, 90, 185, 140, 80];
+    const maxVal = 200;
+    const barW = 32;
+    const spacing = (sw - 140) / 7;
+
+    for (let i = 0; i < 7; i++) {
+      const barSpring = easeOutBack(Math.min(1.0, Math.max(0, (localT - i * 0.1) / 0.8)));
+      const barH = (values[i] / maxVal) * 160 * barSpring;
+      const x = -sw/2 + 70 + i * spacing;
+      const y = chartY + 240 - barH;
+
+      const isWednesday = (i === 4);
+      const barGrad = sCtx.createLinearGradient(0, y, 0, y + barH);
+      if (isWednesday) {
+        barGrad.addColorStop(0, '#22D3EE');
+        barGrad.addColorStop(1, '#00C48C');
+      } else {
+        barGrad.addColorStop(0, 'rgba(0, 196, 140, 0.4)');
+        barGrad.addColorStop(1, 'rgba(0, 196, 140, 0.15)');
+      }
+
+      sCtx.fillStyle = barGrad;
+      roundRect(sCtx, x, y, barW, barH, 8);
+      sCtx.fill();
+
+      // Day label
+      sCtx.fillStyle = isWednesday ? C_EMERALD : C_TEXT_MUTED;
+      sCtx.font = isWednesday ? '800 16px Cairo' : '600 14px Cairo';
+      sCtx.textAlign = 'center';
+      sCtx.fillText(days[i], x + barW/2, chartY + 270);
+
+      // Tooltip for Wednesday
+      if (isWednesday && localT > 1.2) {
+        sCtx.fillStyle = '#0E131F';
+        sCtx.strokeStyle = C_CYAN;
+        roundRect(sCtx, x - 25, y - 48, 82, 36, 10);
+        sCtx.fill();
+        sCtx.stroke();
+        sCtx.fillStyle = C_CYAN;
+        sCtx.font = '800 16px Cairo';
+        sCtx.fillText('185 ₪', x + barW/2, y - 24);
+      }
+    }
+
+    // Export Buttons Section
+    const exportY = chartY + 360;
+
+    // Excel Export Button
+    const isExporting = localT > 2.2;
+    const exportProgress = isExporting ? Math.min(1.0, (localT - 2.2) / 1.0) : 0;
+
+    sCtx.fillStyle = '#182032';
+    sCtx.strokeStyle = C_EMERALD;
+    sCtx.lineWidth = 2;
+    roundRect(sCtx, -sw/2 + 35, exportY, sw - 70, 75, 22);
+    sCtx.fill();
+    sCtx.stroke();
+
+    // Progress bar fill inside button
+    if (exportProgress > 0) {
+      sCtx.save();
+      roundRect(sCtx, -sw/2 + 35, exportY, sw - 70, 75, 22);
+      sCtx.clip();
+      sCtx.fillStyle = 'rgba(0, 196, 140, 0.25)';
+      sCtx.fillRect(-sw/2 + 35, exportY, (sw - 70) * exportProgress, 75);
+      sCtx.restore();
+    }
+
+    sCtx.fillStyle = C_TEXT_WHITE;
+    sCtx.font = '800 22px Cairo';
+    sCtx.textAlign = 'center';
+    sCtx.fillText(exportProgress >= 1.0 ? '✓ تم تصدير Excel (XLSX) بنجاح' : 'تصدير كشف حساب Excel (XLSX)', 0, exportY + 45);
+
+    // PDF Export Button
+    sCtx.fillStyle = '#182032';
+    sCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    roundRect(sCtx, -sw/2 + 35, exportY + 95, sw - 70, 75, 22);
+    sCtx.fill();
+    sCtx.stroke();
+
+    sCtx.fillStyle = C_TEXT_MUTED;
+    sCtx.font = '700 20px Cairo';
+    sCtx.fillText('تصدير تقرير شهري مطبوع (PDF)', 0, exportY + 140);
+  });
+
+  ctx.restore();
+}
+
+// -------------------------------------------------------------
+// SCENE 4: 100% Offline-First & Security Shield (13.5s - 17.5s)
+// -------------------------------------------------------------
+function renderScene4(t) {
+  const localT = t - 13.5;
+  const p = localT / 4.0;
+  const alpha = p < 0.15 ? p / 0.15 : (p > 0.85 ? (1 - p) / 0.15 : 1.0);
+
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+
+  // Top Headline
+  ctx.fillStyle = C_TEXT_WHITE;
+  ctx.font = '800 48px Cairo';
+  ctx.textAlign = 'center';
+  ctx.fillText('أمان مطلق.. 0 خوادم وبلا إنترنت', WIDTH/2, 180);
+
+  ctx.fillStyle = C_CYAN;
+  ctx.font = '700 28px Cairo';
+  ctx.fillText('صوتك وبياناتك المالية مشفرة على جهازك فقط', WIDTH/2, 235);
+
+  drawPhoneMockup(WIDTH/2, 1080, 720, 1380, localT, (sCtx, sw, sh) => {
+    // 3D-styled Cryptographic Shield Emblem
+    const shieldScale = easeOutBack(Math.min(1.0, localT / 0.8));
+    sCtx.save();
+    sCtx.translate(0, -sh/2 + 220);
+    sCtx.scale(shieldScale, shieldScale);
+
+    // Energy rings
+    sCtx.strokeStyle = 'rgba(0, 196, 140, 0.3)';
+    sCtx.lineWidth = 3;
+    sCtx.beginPath();
+    sCtx.arc(0, 0, 110 + Math.sin(localT * 6) * 10, 0, Math.PI * 2);
+    sCtx.stroke();
+
+    // Shield Shape
+    const sGrad = sCtx.createLinearGradient(-70, -70, 70, 70);
+    sGrad.addColorStop(0, '#00E5A3');
+    sGrad.addColorStop(1, '#008C62');
+    sCtx.fillStyle = sGrad;
+    sCtx.shadowColor = 'rgba(0, 196, 140, 0.6)';
+    sCtx.shadowBlur = 40;
+
+    sCtx.beginPath();
+    sCtx.moveTo(0, -70);
+    sCtx.lineTo(65, -35);
+    sCtx.lineTo(65, 25);
+    sCtx.quadraticCurveTo(65, 80, 0, 105);
+    sCtx.quadraticCurveTo(-65, 80, -65, 25);
+    sCtx.lineTo(-65, -35);
+    sCtx.closePath();
+    sCtx.fill();
+    sCtx.shadowBlur = 0;
+
+    // Lock inside shield
+    sCtx.fillStyle = '#0E131F';
+    roundRect(sCtx, -24, 0, 48, 42, 10);
+    sCtx.fill();
+    sCtx.strokeStyle = '#0E131F';
+    sCtx.lineWidth = 6;
+    sCtx.beginPath();
+    sCtx.arc(0, -4, 18, Math.PI, 0);
+    sCtx.stroke();
+
+    sCtx.restore();
+
+    // 3 Feature Checklist Pills
+    const pills = [
+      '✓ خالٍ تماماً من إذن الإنترنت (Zero Network)',
+      '✓ خصوصية تامة وصفر تتبع أو إعلانات',
+      '✓ يعمل أوفلاين في أي وقت وأي مكان'
+    ];
+    const startY = -sh/2 + 420;
+
+    for (let i = 0; i < pills.length; i++) {
+      const pillProg = easeOutBack(Math.min(1.0, Math.max(0, (localT - 0.6 - i * 0.25) / 0.6)));
+      const pillY = startY + i * 80;
+
+      sCtx.save();
+      sCtx.translate(0, pillY);
+      sCtx.scale(pillProg, pillProg);
+
+      sCtx.fillStyle = '#182032';
+      sCtx.strokeStyle = 'rgba(0, 196, 140, 0.3)';
+      roundRect(sCtx, -sw/2 + 35, -30, sw - 70, 64, 20);
+      sCtx.fill();
+      sCtx.stroke();
+
+      sCtx.fillStyle = C_TEXT_WHITE;
+      sCtx.font = '700 20px Cairo';
+      sCtx.textAlign = 'center';
+      sCtx.fillText(pills[i], 0, 8);
+
+      sCtx.restore();
+    }
+  });
+
+  ctx.restore();
+}
+
+// -------------------------------------------------------------
+// SCENE 5: Epic Outro & Call to Action (17.5s - 21.5s)
+// -------------------------------------------------------------
+function renderScene5(t) {
+  const localT = t - 17.5;
+  const p = localT / 4.0;
+  const alpha = p < 0.15 ? p / 0.15 : 1.0;
+
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha, 0, 1);
+
+  // Grand Logo Seal
+  const logoScale = easeOutBack(Math.min(1.0, localT / 0.8));
+  ctx.save();
+  ctx.translate(WIDTH/2, 600);
+  ctx.scale(logoScale, logoScale);
+
+  // Halo Rings
+  ctx.strokeStyle = 'rgba(0, 196, 140, 0.3)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(0, 0, 140, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Emblem Box
+  const emGrad = ctx.createLinearGradient(-100, -100, 100, 100);
+  emGrad.addColorStop(0, '#151D2F');
+  emGrad.addColorStop(1, '#0E131F');
+  ctx.fillStyle = emGrad;
+  ctx.shadowColor = 'rgba(0, 196, 140, 0.4)';
+  ctx.shadowBlur = 50;
+  roundRect(ctx, -100, -100, 200, 200, 50);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.strokeStyle = C_EMERALD;
+  ctx.lineWidth = 4;
+  roundRect(ctx, -100, -100, 200, 200, 50);
+  ctx.stroke();
+
+  // Arabic "ر" Calligraphic Seal
+  ctx.fillStyle = C_EMERALD;
+  ctx.font = '900 120px Cairo';
+  ctx.textAlign = 'center';
+  ctx.fillText('ر', 0, 42);
+
+  ctx.restore();
+
+  // Title & Tagline
+  ctx.fillStyle = C_TEXT_WHITE;
+  ctx.font = '900 64px Cairo';
+  ctx.textAlign = 'center';
+  ctx.fillText('رَقِـيـم', WIDTH/2, 880);
+
+  ctx.fillStyle = C_CYAN;
+  ctx.font = '700 32px Cairo';
+  ctx.fillText('ذكاء المصاريف بالصوت • أوفلاين 100%', WIDTH/2, 945);
+
+  ctx.fillStyle = C_TEXT_MUTED;
+  ctx.font = '600 24px Cairo';
+  ctx.fillText('تتبع وقسم نفقاتك بلهجتك المحلية دون إنترنت', WIDTH/2, 1000);
+
+  // Download Badge / Store CTA
+  const btnScale = easeOutBack(Math.min(1.0, Math.max(0, (localT - 0.8) / 0.7)));
+  ctx.save();
+  ctx.translate(WIDTH/2, 1180);
+  ctx.scale(btnScale, btnScale);
+
+  ctx.fillStyle = C_EMERALD;
+  ctx.shadowColor = 'rgba(0, 196, 140, 0.5)';
+  ctx.shadowBlur = 30;
+  roundRect(ctx, -260, -45, 520, 90, 45);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#0E131F';
+  ctx.font = '900 32px Cairo';
+  ctx.fillText('حمّله الآن مجاناً', 0, 10);
+
+  ctx.restore();
+
+  // Secondary store footer
+  ctx.fillStyle = C_TEXT_MUTED;
+  ctx.font = '600 22px Cairo';
+  ctx.fillText('متوفر على Google Play • خصوصية كاملة مدى الحياة', WIDTH/2, 1340);
+
+  ctx.restore();
+}
+
+// -------------------------------------------------------------
+// MAIN RENDER LOOP & RECORDER
+// -------------------------------------------------------------
+const stream = canvas.captureStream(FPS);
+const recorder = new MediaRecorder(stream, {
+  mimeType: 'video/webm;codecs=vp9',
+  videoBitsPerSecond: 18000000 // 18 Mbps high quality
+});
+const chunks = [];
+
+recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+recorder.onstop = async () => {
+  const blob = new Blob(chunks, { type: 'video/webm' });
+  await fetch('/upload', { method: 'POST', body: blob });
+  console.log('Upload finished!');
+};
+recorder.start();
+
+const startTime = performance.now();
+
+function animate() {
+  const now = performance.now();
+  const t = (now - startTime) / 1000;
+
+  drawBackground(t);
+
+  if (t < 4.5) {
+    renderScene1(t);
+  } else if (t < 9.0) {
+    renderScene2(t);
+  } else if (t < 13.5) {
+    renderScene3(t);
+  } else if (t < 17.5) {
+    renderScene4(t);
+  } else if (t < DURATION) {
+    renderScene5(t);
+  } else {
+    recorder.stop();
+    return;
+  }
+
+  requestAnimationFrame(animate);
+}
+
+// Wait briefly for Cairo font to be ready
+document.fonts.ready.then(() => {
+  requestAnimationFrame(animate);
+});
+</script>
+</body>
+</html>

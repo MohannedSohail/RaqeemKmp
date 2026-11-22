@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import org.mohtech.app.ai.audio.AudioProcessor
+import org.mohtech.app.ai.audio.VoiceActivityDetector
+import org.mohtech.app.ai.audio.VadResult
 import org.mohtech.app.ai.audio.VoiceEngine
 import org.mohtech.app.ai.nlp.LocalDialectExpenseParser
 import org.mohtech.app.ai.nlp.TranscriptNormalizer
@@ -282,16 +284,9 @@ class ExpenseViewModel(
     private fun stopRecording() {
         if (!_uiState.value.isRecording) return
 
-        val engine = voiceEngine
-        if (engine != null) {
-            engine.stopListening()
-            _uiState.update { it.copy(isRecording = false) }
-            return
-        }
-
-        val recorder = audioRecorder
-        if (recorder != null) {
-            val pcm = recorder.stopRecording()
+        if (audioRecorder != null || transcriber != null) {
+            val recorder = audioRecorder
+            val pcm = recorder?.stopRecording()
             _uiState.update {
                 it.copy(
                     isRecording = false,
@@ -302,6 +297,16 @@ class ExpenseViewModel(
             if (pcm == null || pcm.isEmpty()) {
                 handleSpeechError(SpeechError.EmptyResult)
                 return
+            }
+
+            // Apply Voice Activity Detection (VAD) to trim silence and reject empty audio
+            val vad = VoiceActivityDetector()
+            val speechPcm = when (val vadResult = vad.process(pcm)) {
+                is VadResult.Speech -> vadResult.trimmedPcm
+                is VadResult.NoSpeech -> {
+                    handleSpeechError(SpeechError.EmptyResult)
+                    return
+                }
             }
 
             val transcriberEngine = transcriber
@@ -317,7 +322,7 @@ class ExpenseViewModel(
 
                 try {
                     val result = transcriberEngine.transcribe(
-                        pcm,
+                        speechPcm,
                         WhisperModelConfig(language = "ar", translate = false)
                     )
                     when (result) {
@@ -353,6 +358,14 @@ class ExpenseViewModel(
                     handleSpeechError(SpeechError.Unknown(t.message ?: "Transcription failed"))
                 }
             }
+            return
+        }
+
+        val engine = voiceEngine
+        if (engine != null) {
+            engine.stopListening()
+            _uiState.update { it.copy(isRecording = false) }
+            return
         }
     }
 

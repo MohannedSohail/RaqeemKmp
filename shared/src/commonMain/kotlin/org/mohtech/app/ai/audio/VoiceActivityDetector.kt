@@ -69,9 +69,9 @@ class VoiceActivityDetector(
         avgEnergy /= totalFrames
 
         // 2. Adaptive threshold: adaptive noise floor + margin
-        // Minimum floor of 0.015f to reject absolute low-energy background hiss
-        val noiseFloor = maxOf(minEnergy, 0.008f)
-        val speechThreshold = maxOf(noiseFloor * 2.5f, 0.020f)
+        // Clamp noise floor to avoid loud continuous speech being mistaken for high noise floor
+        val noiseFloor = minOf(maxOf(minEnergy, 0.005f), 0.040f)
+        val speechThreshold = maxOf(minOf(noiseFloor * 2.2f, 0.060f), 0.015f)
 
         val isSpeech = BooleanArray(totalFrames) { f ->
             frameEnergies[f] >= speechThreshold
