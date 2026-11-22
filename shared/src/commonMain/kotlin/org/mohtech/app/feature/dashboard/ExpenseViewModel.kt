@@ -47,6 +47,7 @@ class ExpenseViewModel(
 
     private var processingJob: kotlinx.coroutines.Job? = null
     private var recordingStartTimeMs: Long = 0L
+    private var smsSequence: Long = 1000L
 
     private val _uiState = MutableStateFlow(
         ExpenseUiState(
@@ -589,7 +590,7 @@ class ExpenseViewModel(
         val proof = parser.parseBankSms(smsBody, now)
 
         if (proof != null) {
-            val suffix = (100000..999999).random()
+            val suffix = ++smsSequence
             val item = ExpenseItem(
                 id = "exp_sms_${now}_$suffix",
                 title = proof.merchant,
@@ -687,8 +688,9 @@ class ExpenseViewModel(
     private fun repeatExpense(item: ExpenseItem) {
         viewModelScope.launch {
             val now = Clock.System.now().toEpochMilliseconds()
+            val seq = LocalDialectExpenseParser.nextSequence()
             val newItem = item.copy(
-                id = "exp_${now}_${(100000..999999).random()}",
+                id = "exp_${now}_$seq",
                 timestamp = now
             )
             repository.saveExpense(newItem)

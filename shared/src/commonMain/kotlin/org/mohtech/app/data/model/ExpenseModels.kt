@@ -1,6 +1,7 @@
 package org.mohtech.app.data.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 @Serializable
 enum class ExpenseCategory(
@@ -24,12 +25,42 @@ data class Payer(
 )
 
 @Serializable
+enum class DebtStatus {
+    OPEN,
+    PARTIAL,
+    SETTLED
+}
+
+@Serializable
+data class Settlement(
+    val id: String,
+    val refNo: Long = 0L,
+    val allocationId: String = "",
+    val amount: Double,
+    val settledAt: Long,
+    val recordedAt: Long,
+    val note: String = "",
+    val voidedAt: Long? = null
+)
+
+@Serializable
+data class Allocation(
+    val id: String,
+    val party: Payer,
+    val amount: Double,
+    val refNo: Long = 0L,
+    val settlements: List<Settlement> = emptyList(),
+    val note: String = ""
+)
+
+@Serializable
 data class ExpenseSplit(
     val totalAmount: Double,
     val payer: Payer,
     val participants: List<Payer>,
     val amountPerPerson: Double,
-    val note: String = ""
+    val note: String = "",
+    val allocations: List<Allocation> = emptyList()
 )
 
 @Serializable
@@ -62,8 +93,16 @@ data class ExpenseItem(
     val split: ExpenseSplit? = null,
     val proofType: ProofType = ProofType.NONE,
     val proofDetails: BankSmsProof? = null,
-    val rawSpokenText: String = ""
-)
+    val rawSpokenText: String = "",
+    val myShare: Double? = null,
+    val receiptPhotoPath: String? = null,
+    val refNo: Long = 0L,
+    val deletedAt: Long? = null
+) {
+    @Transient
+    val effectiveAmount: Double
+        get() = myShare ?: amount
+}
 
 @Serializable
 data class ExpenseBatch(
@@ -71,5 +110,15 @@ data class ExpenseBatch(
     val items: List<ExpenseItem>,
     val totalBatchAmount: Double,
     val createdAt: Long
+)
+
+@Serializable
+data class AuditRecord(
+    val id: String,
+    val timestamp: Long,
+    val entityType: String,
+    val entityId: String,
+    val action: String, // CREATE, UPDATE, DELETE, SETTLE, VOID, RESTORE
+    val details: String
 )
 

@@ -294,4 +294,84 @@ class ExpenseRepositoryTest {
         val flowItems = testRepo.expensesFlow.first()
         assertEquals(1, flowItems.size)
     }
+
+    @Test
+    fun testGetTodayAndWeeklyTotalUsesEffectiveAmount() = runTest {
+        repository.initialize()
+        val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
+
+        // Expense 1: Total is 100.0 ILS, but user's personal share is only 35.0 ILS
+        val sharedItem = ExpenseItem(
+            id = "exp_eff_1",
+            title = "عشاء مشترك",
+            amount = 100.0,
+            currency = "₪",
+            category = ExpenseCategory.DINING,
+            timestamp = now,
+            myShare = 35.0
+        )
+        // Expense 2: Standard personal expense (myShare is null, so effectiveAmount == amount)
+        val personalItem = ExpenseItem(
+            id = "exp_eff_2",
+            title = "قهوة",
+            amount = 15.0,
+            currency = "₪",
+            category = ExpenseCategory.DINING,
+            timestamp = now,
+            myShare = null
+        )
+
+        repository.saveExpense(sharedItem)
+        repository.saveExpense(personalItem)
+
+        // Totals must sum effectiveAmount: 35.0 + 15.0 = 50.0 (NOT 100.0 + 15.0 = 115.0)
+        assertEquals(50.0, repository.getTodayTotal(), "getTodayTotal must use effectiveAmount")
+        assertEquals(50.0, repository.getWeeklyTotal(), "getWeeklyTotal must use effectiveAmount")
+    }
+
+    @Test
+    fun testSoftDeletedExpensesAreExcludedFromTotalsAndListing() = runTest {
+        repository.initialize()
+        val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
+
+        val activeItem = ExpenseItem(
+            id = "exp_active",
+            title = "بنزين",
+            amount = 50.0,
+            currency = "₪",
+            category = ExpenseCategory.TRANSPORT,
+            timestamp = now,
+            deletedAt = null
+        )
+        val softDeletedItem = ExpenseItem(
+            id = "exp_deleted",
+            title = "مشتريات ملغاة",
+            amount = 80.0,
+            currency = "₪",
+            category = ExpenseCategory.TRANSPORT,
+            timestamp = now,
+            deletedAt = now
+        )
+
+        repository.saveExpense(activeItem)
+        repository.saveExpense(softDeletedItem)
+
+        // Soft-deleted expense must be excluded from totals
+        assertEquals(50.0, repository.getTodayTotal(), "Soft-deleted expense must not count toward today's total")
+        assertEquals(50.0, repository.getWeeklyTotal(), "Soft-deleted expense must not count toward weekly total")
+
+        // Soft-deleted expense must be excluded from active listing queries
+        val allActive = repository.getAllExpenses()
+        assertEquals(1, allActive.size)
+        assertEquals("exp_active", allActive.first().id)
+
+        val transportExpenses = repository.getExpensesByCategory(ExpenseCategory.TRANSPORT)
+        assertEquals(1, transportExpenses.size)
+        assertEquals("exp_active", transportExpenses.first().id)
+
+        // Soft-deleted expense must be excluded from reactive expensesFlow
+        val activeFlow = repository.expensesFlow.first()
+        assertEquals(1, activeFlow.size, "expensesFlow must exclude soft-deleted items")
+        assertEquals("exp_active", activeFlow.first().id)
+    }
 }

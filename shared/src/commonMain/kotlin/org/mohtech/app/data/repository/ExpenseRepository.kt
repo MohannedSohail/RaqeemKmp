@@ -3,6 +3,7 @@ package org.mohtech.app.data.repository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.time.Clock
@@ -36,7 +37,9 @@ class LocalExpenseRepository(
 ) : ExpenseRepository {
 
     private val _expensesFlow = MutableStateFlow<List<ExpenseItem>>(emptyList())
-    override val expensesFlow: Flow<List<ExpenseItem>> = _expensesFlow.asStateFlow()
+    override val expensesFlow: Flow<List<ExpenseItem>> = _expensesFlow.map { list ->
+        list.distinctBy { it.id }.filter { it.deletedAt == null }
+    }
 
     override suspend fun initialize() {
         val loaded = storage.getAllExpenses().distinctBy { it.id }
@@ -66,11 +69,11 @@ class LocalExpenseRepository(
     }
 
     override suspend fun getAllExpenses(): List<ExpenseItem> {
-        return _expensesFlow.value.distinctBy { it.id }
+        return _expensesFlow.value.distinctBy { it.id }.filter { it.deletedAt == null }
     }
 
     override suspend fun getExpensesByCategory(category: ExpenseCategory): List<ExpenseItem> {
-        return _expensesFlow.value.distinctBy { it.id }.filter { it.category == category }
+        return _expensesFlow.value.distinctBy { it.id }.filter { it.deletedAt == null && it.category == category }
     }
 
     override suspend fun getTodayTotal(): Double {
@@ -79,8 +82,10 @@ class LocalExpenseRepository(
         val activeCurrency = preferences.getPreferredCurrency()
 
         return _expensesFlow.value.filter { item ->
-            item.timestamp >= startOfToday && (activeCurrency.isBlank() || item.currency == activeCurrency)
-        }.sumOf { it.amount }
+            item.deletedAt == null &&
+            item.timestamp >= startOfToday &&
+            (activeCurrency.isBlank() || item.currency == activeCurrency)
+        }.sumOf { it.effectiveAmount }
     }
 
     override suspend fun getWeeklyTotal(): Double {
@@ -92,8 +97,10 @@ class LocalExpenseRepository(
         val activeCurrency = preferences.getPreferredCurrency()
 
         return _expensesFlow.value.filter { item ->
-            item.timestamp >= startOfWeek && (activeCurrency.isBlank() || item.currency == activeCurrency)
-        }.sumOf { it.amount }
+            item.deletedAt == null &&
+            item.timestamp >= startOfWeek &&
+            (activeCurrency.isBlank() || item.currency == activeCurrency)
+        }.sumOf { it.effectiveAmount }
     }
 
     override suspend fun updateExpense(item: ExpenseItem) {

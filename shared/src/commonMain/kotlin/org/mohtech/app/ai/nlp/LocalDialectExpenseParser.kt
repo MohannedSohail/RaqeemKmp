@@ -1,6 +1,8 @@
 package org.mohtech.app.ai.nlp
 
 import kotlin.time.Clock
+import org.mohtech.app.data.accounting.Money
+import org.mohtech.app.data.model.Allocation
 import org.mohtech.app.data.model.BankSmsProof
 import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
@@ -14,6 +16,11 @@ import org.mohtech.app.data.model.ProofType
  * 100% Offline, Rule-based Arabic computational linguistics engine for colloquial dialects.
  */
 class LocalDialectExpenseParser {
+
+    companion object {
+        private var idCounter: Long = 1000L
+        fun nextSequence(): Long = ++idCounter
+    }
 
     private val numberWordTokens = setOf(
         "نص", "ربع", "واحد", "واحدة", "اثنين", "اتنين", "ثلاثة", "تلاتة", "أربعة", "اربعة", "خمسة",
@@ -51,15 +58,17 @@ class LocalDialectExpenseParser {
         // 4. Detect Payer
         val payer = detectPayer(normalizedText)
 
+        val ts = if (currentTimestamp > 0L) currentTimestamp else Clock.System.now().toEpochMilliseconds()
+        val seq = nextSequence()
+
         // 5. Detect Split
-        val split = detectSplit(normalizedText, amount, payer)
+        val (split, calculatedMyShare) = detectSplit(normalizedText, amount, currency, payer, ts, seq)
 
         // 6. Extract Clean Title
         val title = extractTitle(spokenText, category)
 
-        val ts = if (currentTimestamp > 0L) currentTimestamp else Clock.System.now().toEpochMilliseconds()
         val item = ExpenseItem(
-            id = "exp_${ts}_${(100000..999999).random()}",
+            id = "exp_${ts}_$seq",
             title = title,
             amount = amount,
             currency = currency,
@@ -68,7 +77,8 @@ class LocalDialectExpenseParser {
             payer = payer,
             split = split,
             proofType = ProofType.NONE,
-            rawSpokenText = spokenText
+            rawSpokenText = spokenText,
+            myShare = calculatedMyShare
         )
 
         return ExpenseBatch(
@@ -217,21 +227,38 @@ class LocalDialectExpenseParser {
         return Payer(id = "self", name = "أنا", isCurrentUser = true)
     }
 
-    private fun detectSplit(text: String, totalAmount: Double, currentPayer: Payer): ExpenseSplit? {
+    private fun detectSplit(
+        text: String,
+        totalAmount: Double,
+        currency: String,
+        currentPayer: Payer,
+        ts: Long,
+        seq: Long
+    ): Pair<ExpenseSplit?, Double?> {
         // Pattern A: "سددت عن [الاسم]" / "دفعت عن [الاسم]" (payer is self, beneficiary is other)
         val paidOnBehalfRegex = Regex("""(?:دفعت\s+عن|سددت\s+عن)\s+([^\s,]+)""")
         val onBehalfMatch = paidOnBehalfRegex.find(text)
         if (onBehalfMatch != null) {
             val beneficiary = onBehalfMatch.groupValues[1].trim()
-            val participants = listOf(
-                Payer(id = beneficiary, name = beneficiary, isCurrentUser = false)
+            val party = Payer(id = beneficiary, name = beneficiary, isCurrentUser = false)
+            val participants = listOf(party)
+            val note = "سددت نيابة عن $beneficiary"
+            val alloc = Allocation(
+                id = "alloc_${ts}_${seq}_$beneficiary",
+                party = party,
+                amount = totalAmount,
+                note = note
             )
-            return ExpenseSplit(
-                totalAmount = totalAmount,
-                payer = currentPayer,
-                participants = participants,
-                amountPerPerson = totalAmount,
-                note = "سددت نيابة عن $beneficiary"
+            return Pair(
+                ExpenseSplit(
+                    totalAmount = totalAmount,
+                    payer = currentPayer,
+                    participants = participants,
+                    amountPerPerson = totalAmount,
+                    note = note,
+                    allocations = listOf(alloc)
+                ),
+                0.0 // User paid on behalf of someone else; user's own share is 0
             )
         }
 
@@ -240,15 +267,25 @@ class LocalDialectExpenseParser {
         val forMeMatch = paidForMeRegex.find(text)
         if (forMeMatch != null) {
             val payerName = forMeMatch.groupValues[1].trim()
-            val participants = listOf(
-                Payer(id = "self", name = "أنا", isCurrentUser = true)
+            val selfParty = Payer(id = "self", name = "أنا", isCurrentUser = true)
+            val participants = listOf(selfParty)
+            val note = "دفع $payerName عني"
+            val alloc = Allocation(
+                id = "alloc_${ts}_${seq}_self",
+                party = selfParty,
+                amount = totalAmount,
+                note = note
             )
-            return ExpenseSplit(
-                totalAmount = totalAmount,
-                payer = currentPayer,
-                participants = participants,
-                amountPerPerson = totalAmount,
-                note = "دفع $payerName عني"
+            return Pair(
+                ExpenseSplit(
+                    totalAmount = totalAmount,
+                    payer = currentPayer,
+                    participants = participants,
+                    amountPerPerson = totalAmount,
+                    note = note,
+                    allocations = listOf(alloc)
+                ),
+                totalAmount // User owes payer the full amount
             )
         }
 
@@ -257,35 +294,60 @@ class LocalDialectExpenseParser {
         val match = betweenRegex.find(text)
         if (match != null) {
             val otherPerson = match.groupValues[1].trim()
+            val otherParty = Payer(otherPerson, otherPerson, false)
             val participants = listOf(
                 Payer("self", "أنا", true),
-                Payer(otherPerson, otherPerson, false)
+                otherParty
             )
-            val half = totalAmount / 2.0
-            return ExpenseSplit(
-                totalAmount = totalAmount,
-                payer = currentPayer,
-                participants = participants,
-                amountPerPerson = half,
-                note = "قسمة بيني وبين $otherPerson"
+            val splitResult = Money.distributeSplitEvenly(totalAmount, currency, 2)
+            val note = "قسمة بيني وبين $otherPerson"
+            val alloc = Allocation(
+                id = "alloc_${ts}_${seq}_$otherPerson",
+                party = otherParty,
+                amount = splitResult.sharePerOther,
+                note = note
+            )
+            return Pair(
+                ExpenseSplit(
+                    totalAmount = totalAmount,
+                    payer = currentPayer,
+                    participants = participants,
+                    amountPerPerson = splitResult.sharePerOther,
+                    note = note,
+                    allocations = listOf(alloc)
+                ),
+                splitResult.myShare
             )
         }
 
         if (text.contains("قسمة علينا") || text.contains("النص بالنص")) {
+            val otherParty = Payer("other", "الشريك", false)
             val participants = listOf(
                 Payer("self", "أنا", true),
-                Payer("other", "الشريك", false)
+                otherParty
             )
-            return ExpenseSplit(
-                totalAmount = totalAmount,
-                payer = currentPayer,
-                participants = participants,
-                amountPerPerson = totalAmount / 2.0,
-                note = "قسمة بالنصف"
+            val splitResult = Money.distributeSplitEvenly(totalAmount, currency, 2)
+            val note = "قسمة بالنصف"
+            val alloc = Allocation(
+                id = "alloc_${ts}_${seq}_partner",
+                party = otherParty,
+                amount = splitResult.sharePerOther,
+                note = note
+            )
+            return Pair(
+                ExpenseSplit(
+                    totalAmount = totalAmount,
+                    payer = currentPayer,
+                    participants = participants,
+                    amountPerPerson = splitResult.sharePerOther,
+                    note = note,
+                    allocations = listOf(alloc)
+                ),
+                splitResult.myShare
             )
         }
 
-        return null
+        return Pair(null, null)
     }
 
     private fun extractTitle(spokenText: String, category: ExpenseCategory): String {
