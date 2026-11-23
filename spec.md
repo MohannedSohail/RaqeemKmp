@@ -27,6 +27,11 @@
 | **P15** | تكديس الشاشة الرئيسية (شاشة واحدة طويلة) وعدم وجود هيكل تبويبات | `MainShell.kt`، `tabs/*`، `BackHandler.*` | هيكل تبويبات 4 بـ `MainTab` مع حفظ الحالة عبر التدوير، وشريط تنقل سفلي وNavigationRail للأفقي | تم واختُبر آلياً ✅ (فحص الواجهة يدوي) |
 | **P16** | غياب محرر الميزانية وتثبيتها بـ 2500 وظهور عبارات تسويقية | `BudgetEditorDialog.kt`، `CalendarWeekUtil.kt`، `AppPreferences.kt` | محرر ميزانية تفاعلي، بداية أسبوع قابلة للتعديل، وإزالة كاملة لعبارة «محلي 100%» من الواجهة | تم واختُبر آلياً ✅ |
 | **P17** | أزرار التصدير تكتفي بالنسخ للحافظة دون إنتاج ملفات حقيقية | `XlsxWriter.kt`، `PdfReportWriter.android.kt`، `PlatformReportBridge.*` | كاتب XLSX نقي بـ Kotlin بدون تبعيات، ومولد PDF بـ Android Canvas، ومشاركة FileProvider وحفظ SAF | تم واختُبر آلياً ✅ (الـ PDF بانتظار فحص الخط يدوي) |
+| **P18** | احتساب ديون وحصص الآخرين ضمن نفقات وميزانية المستخدم الشخصية | `ExpenseModels.kt`، `ReportModels.kt`، `ExpenseRepository.kt` | اعتماد `effectiveAmount = myShare ?: amount` لجميع المجاميع، وعزل حصص الشركاء كذمم دائنة | تم واختُبر آلياً ✅ |
+| **P19** | مخاطر فقدان البيانات عند تلف JSON أو انقطاع الطاقة المفاجئ | `PlatformExpenseStorage.kt` | تخزين ذري يكتب أولاً إلى `.tmp` ثم يستبدل ذرياً، ونقل الملف التالف إلى `.corrupt` مع ختم زمني | تم واختُبر آلياً ✅ |
+| **P20** | شيت المراجعة محدودة بمصروف أحادي وتفتقر لتخصيص الحصص وإرفاق الإيصال | `ExpenseReviewSheet.kt`، `PlatformReceiptPicker.*` | دعم الدفعات المتعددة، بطاقات المراجعة المستقلة، تخصيص الحصص، وإرفاق صور الإيصالات أوفلاين | تم واختُبر آلياً ✅ (واجهة المستخدم فحص يدوي) |
+| **P21** | غياب سجل ذمم ومستحقات الشركاء والتسديدات الجزئية والكلية | `ReceivablesLedger.kt`، `ReceivablesScreen.kt` | دفتر أستاذ موحد (`ReceivablesLedger`)، فحص مطابقة رياضي، تسديدات ملغاة بـ `voided`، وحذف ناعم | تم واختُبر آلياً ✅ |
+| **P22** | غياب كشوفات الحساب وأعمار الديون وتسمية ملفات التصدير بصيغة موحدة | `ReportModels.kt`، `ExportNamer.kt`، `XlsxWriter.kt` | كشوفات حساب مع رصيد تراكمي مستمر، تقارير أعمار الديون (Aging)، وتسمية مانعة للتصادم | تم واختُبر آلياً ✅ |
 
 ---
 
@@ -346,4 +351,79 @@ expect class PdfReportWriter {
 }
 
 expect fun writeExportFileToCache(fileName: String, bytes: ByteArray): String
+
+### 5.6 عقود دفتر المستحقات والمحاسبة المالية (Accounting & Receivables Contracts)
+```kotlin
+@Serializable
+data class Allocation(
+    val partyName: String,
+    val amount: Double,
+    val note: String = ""
+)
+
+@Serializable
+data class Settlement(
+    val id: String,
+    val refNo: String,
+    val partyName: String,
+    val amount: Double,
+    val settledAt: Instant,
+    val recordedAt: Instant,
+    val note: String = "",
+    val isVoided: Boolean = false,
+    val voidReason: String? = null,
+    val voidedAt: Instant? = null
+)
+
+sealed interface DebtStatus {
+    object Settled : DebtStatus
+    data class Pending(val remaining: Double, val currency: String) : DebtStatus
+}
+
+object ReceivablesLedger {
+    fun computeAllocation(expenses: List<ExpenseItem>, settlements: List<Settlement>): LedgerState
+    fun getPartySummaries(expenses: List<ExpenseItem>, settlements: List<Settlement>): List<PartySummary>
+    fun getPartySummary(partyName: String, expenses: List<ExpenseItem>, settlements: List<Settlement>): PartySummary?
+    fun getTotalRemaining(expenses: List<ExpenseItem>, settlements: List<Settlement>): Double
+    fun recordSettlement(current: List<Settlement>, newSettlement: Settlement): List<Settlement>
+    fun voidSettlement(current: List<Settlement>, settlementId: String, reason: String, voidedAt: Instant): List<Settlement>
+}
+
+object ExportNamer {
+    fun generateFileName(type: String, scope: String, extension: String, existingFileNames: Set<String>): String
+    fun sanitizeScope(scope: String): String
+}
+```
+
+### 5.7 سيناريوهات القبول بصيغة Gherkin (v3 Accounting & Receivables Scenarios)
+
+#### Scenario: استثناء حصص الآخرين من إجمالي المصروف الشخصي والميزانية
+```gherkin
+Given المستخدم قام بتسجيل مصروف بمبلغ 100 شيكل
+And حدد أن نصيبه الشخصي myShare هو 30 شيكل و70 شيكل تخصيص لطرف آخر
+When يتم حساب إجمالي المصاريف اليومية وميزانية الأسبوع
+Then يجب أن يُحتسب مبلغ 30 شيكل فقط ضمن النفقات
+And يظهر مبلغ 70 شيكل في دفتر المستحقات كدين قيد التحصيل
+```
+
+#### Scenario: سلامة دفتر المستحقات والتسديد وإلغاء التسديد دون حذف صامت
+```gherkin
+Given وجود مستحقات بقيمة 100 شيكل على طرف "محمد"
+When يقوم المستخدم بتسجيل تسديد جزئي بقيمة 40 شيكل
+Then يصبح الرصيد المتبقي على محمد 60 شيكل
+When يقوم المستخدم بإلغاء التسديد (Void) بسبب خطأ في الإدخال
+Then تُسجل حالة التسديد كـ isVoided = true
+And يعود الرصيد المتبقي على محمد إلى 100 شيكل
+And يبقى سجل التسديد محفوظاً في دفتر التدقيق ولا يُمحى من الذاكرة
+```
+
+#### Scenario: توليد كشف حساب تفصيلي وأعمار الديون وتصدير مصنف إكسل بخمس صفحات
+```gherkin
+Given وجود مصاريف مشتركة وتسديدات لعدة أطراف
+When يطلب المستخدم تصدير كشف الحسابات
+Then يتم إنتاج مصنف XLSX يحتوي على 5 صفحات (الملخص، المستحقات، التسديدات، كشوف الحساب، الأعمار)
+And يتطابق مجموع حركات المدينين مع إجمالي المتبقي وفق فحص المطابقة المحاسبي
+And يُسمى الملف بصيغة موحدة خالية من التصادم مثل raqeem_receivables_statement_20261123-182500.xlsx
+```
+
 ```

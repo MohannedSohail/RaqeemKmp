@@ -654,5 +654,44 @@ object RaqeemIcons {
             drawLine(color = tint.copy(alpha = 0.7f), start = Offset(w * 0.34f, h * 0.62f), end = Offset(w * 0.52f, h * 0.62f), strokeWidth = sw * 0.8f, cap = StrokeCap.Round)
         }
     }
+
+    @Composable
+    fun Back(
+        modifier: Modifier = Modifier,
+        size: Dp = 18.dp,
+        tint: Color = RaqeemColors.TextPrimary,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            // In RTL context, back arrow points rightward
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.25f, h * 0.5f),
+                end = Offset(w * 0.75f, h * 0.5f),
+                strokeWidth = sw,
+                cap = StrokeCap.Round
+            )
+            val head = Path().apply {
+                moveTo(w * 0.55f, h * 0.30f)
+                lineTo(w * 0.75f, h * 0.50f)
+                lineTo(w * 0.55f, h * 0.70f)
+            }
+            drawPath(head, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+    }
+
+    @Composable
+    fun Share(
+        modifier: Modifier = Modifier,
+        size: Dp = 18.dp,
+        tint: Color = RaqeemColors.EmeraldGreen,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Export(modifier = modifier, size = size, tint = tint, strokeWidth = strokeWidth)
+    }
 }
 

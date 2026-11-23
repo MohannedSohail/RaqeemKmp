@@ -372,123 +372,57 @@ object ReceivablesLedger {
     }
 
     /**
-     * Renames a party across all expenses, updating allocations, participants, and payer records.
+     * Renames a party across all expenses and their allocations.
      */
     fun renameParty(
         expenses: List<ExpenseItem>,
         oldName: String,
         newName: String
     ): List<ExpenseItem> {
-        val trimmedOld = oldName.trim()
         val trimmedNew = newName.trim()
-        if (trimmedOld.isEmpty() || trimmedNew.isEmpty() || trimmedOld.equals(trimmedNew, ignoreCase = true)) {
-            return expenses
-        }
+        if (trimmedNew.isBlank() || oldName == trimmedNew) return expenses
 
         return expenses.map { expense ->
-            var changed = false
-
-            val updatedPayer = if (expense.payer.name.equals(trimmedOld, ignoreCase = true)) {
-                changed = true
+            val updatedPayer = if (expense.payer.name == oldName) {
                 expense.payer.copy(name = trimmedNew)
-            } else {
-                expense.payer
-            }
+            } else expense.payer
 
-            val updatedSplit = expense.split?.let { split ->
-                val newParticipants = split.participants.map { p ->
-                    if (p.name.equals(trimmedOld, ignoreCase = true)) {
-                        changed = true
-                        p.copy(name = trimmedNew)
-                    } else {
-                        p
-                    }
-                }
-                val newAllocations = split.allocations.map { alloc ->
-                    if (alloc.party.name.equals(trimmedOld, ignoreCase = true)) {
-                        changed = true
+            val split = expense.split
+            val updatedSplit = if (split != null) {
+                val updatedAllocations = split.allocations.map { alloc ->
+                    if (alloc.party.name == oldName) {
                         alloc.copy(party = alloc.party.copy(name = trimmedNew))
-                    } else {
-                        alloc
-                    }
+                    } else alloc
                 }
-                split.copy(participants = newParticipants, allocations = newAllocations)
-            }
+                val updatedParticipants = split.participants.map { p ->
+                    if (p.name == oldName) p.copy(name = trimmedNew) else p
+                }
+                split.copy(
+                    allocations = updatedAllocations,
+                    participants = updatedParticipants
+                )
+            } else null
 
-            if (changed) {
-                expense.copy(payer = updatedPayer, split = updatedSplit)
-            } else {
-                expense
-            }
+            expense.copy(
+                payer = updatedPayer,
+                split = updatedSplit
+            )
         }
     }
 
     /**
-     * Merges a source party into a target party across all expenses, unifying balances.
+     * Merges a source party into a target party across all expenses and allocations.
+     * Unifies debt balances under target party.
      */
     fun mergeParties(
         expenses: List<ExpenseItem>,
-        sourcePartyName: String,
-        targetPartyName: String
+        sourceName: String,
+        targetName: String
     ): List<ExpenseItem> {
-        val trimmedSource = sourcePartyName.trim()
-        val trimmedTarget = targetPartyName.trim()
-        if (trimmedSource.isEmpty() || trimmedTarget.isEmpty() || trimmedSource.equals(trimmedTarget, ignoreCase = true)) {
-            return expenses
-        }
+        val trimmedTarget = targetName.trim()
+        if (trimmedTarget.isBlank() || sourceName == trimmedTarget) return expenses
 
-        var targetPartyRef: Payer? = null
-        for (expense in expenses) {
-            if (expense.payer.name.equals(trimmedTarget, ignoreCase = true)) {
-                targetPartyRef = expense.payer
-                break
-            }
-            val match = expense.split?.participants?.firstOrNull { it.name.equals(trimmedTarget, ignoreCase = true) }
-                ?: expense.split?.allocations?.firstOrNull { it.party.name.equals(trimmedTarget, ignoreCase = true) }?.party
-            if (match != null) {
-                targetPartyRef = match
-                break
-            }
-        }
-        val canonicalTarget = targetPartyRef ?: Payer(id = "party_${trimmedTarget.hashCode()}", name = trimmedTarget, isCurrentUser = false)
-
-        return expenses.map { expense ->
-            var changed = false
-
-            val updatedPayer = if (expense.payer.name.equals(trimmedSource, ignoreCase = true)) {
-                changed = true
-                canonicalTarget
-            } else {
-                expense.payer
-            }
-
-            val updatedSplit = expense.split?.let { split ->
-                val newParticipants = split.participants.map { p ->
-                    if (p.name.equals(trimmedSource, ignoreCase = true)) {
-                        changed = true
-                        canonicalTarget
-                    } else {
-                        p
-                    }
-                }.distinctBy { it.id.ifBlank { it.name } }
-
-                val newAllocations = split.allocations.map { alloc ->
-                    if (alloc.party.name.equals(trimmedSource, ignoreCase = true)) {
-                        changed = true
-                        alloc.copy(party = canonicalTarget)
-                    } else {
-                        alloc
-                    }
-                }
-                split.copy(participants = newParticipants, allocations = newAllocations)
-            }
-
-            if (changed) {
-                expense.copy(payer = updatedPayer, split = updatedSplit)
-            } else {
-                expense
-            }
-        }
+        return renameParty(expenses, sourceName, trimmedTarget)
     }
 }
 

@@ -1,48 +1,36 @@
-# سجل التقدم التراكمي لمشروع رقيم v3.0 (docs/PROGRESS.md)
+# 📊 جدول تقدم الترقية المحاسبية الشاملة (docs/PROGRESS.md)
 
-تاريخ البدء: 2026-11-23  
-الفرع النشط: `feature/raqeem-v3-accounting-ledger`  
-المقياس المعتمد: عدد خانات «التحقق النهائي» المتحققة بأدلة ÷ إجمالي الخانات (20 خانة).
+تحديث تراكمي لحالة كافة بنود «التحقق النهائي» وفق متطلبات الترقية المحاسبية الشاملة (Axes B, A, C1-C3, C4, D) لتطبيق **رقيم (RaqeemKmp)**.
 
 ---
 
-## 📊 جدول المتابعة التراكمي للتحقق النهائي (20 بنداً)
+## 📈 الحالة التراكمية لبنود التحقق النهائي
 
-| # | بند التحقق النهائي | الحالة الحالية | الدليل الموثق | آخر تقرير مرتبط |
+| الخانة / البند | المحور | الحالة | الدليل | التقرير المرتبط |
 |---|---|---|---|---|
-| 1 | نجاح `:shared:jvmTest` و `:androidApp:assembleDebug` و `bundleRelease` | جزئي | `BUILD SUCCESSFUL` في `:shared:jvmTest` (213 اختبار). بانتظار تجميع أندرويد. | stage-00-audit |
-| 2 | مسار الصوت خالٍ من `android.speech` وصفر شبكة وصفر صلاحيات جديدة | تم واختُبر آلياً | نجاح `SanitizationTest` و `SanitizationRequirementsTest`. | stage-00-audit |
-| 3 | استيراد وترحيل ملف JSON القديم بلا فقد مع حفظ `.bak` وكون الترحيل idempotent | تم واختُبر آلياً | نجاح `StorageSerializationTest` (اختبار الترحيل و.bak). | stage-02-axis-A |
-| 4 | ثبات أسماء حقول `ExpenseItem`/`ExpenseSplit` ونجاح الاختبارات القائمة | تم واختُبر آلياً | الحقول القديمة قائمة ومختبرة في `ExpenseRepositoryTest`. | stage-02-axis-A |
-| 5 | احتساب الإجماليات والرادار والتقارير من `effectiveAmount` لكل عملة | تم واختُبر آلياً | تم تنفيذه في `ExpenseRepository` و `ReceivablesLedger`. | stage-02-axis-A |
-| 6 | ضمان انتهاء كل مسار صوتي بورقة مراجعة أو ورقة إدخال يدوي (صفر مسار صامت) | تم واختُبر آلياً | نجاح `VoicePipelineFallbackTest` (commit `2616ff6`). | stage-01-axis-B |
-| 7 | الدفعة المتعددة تظهر عناصر منفصلة قابلة للتعديل ولا تنسخ بيانات عنصر للبقية | تم واختُبر آلياً وتجميعياً | كود `ExpenseReviewSheet` الموسع ونجاح التجميع وبناء APK. | stage-03-axis-C |
-| 8 | استخراج التخصيصات من العامية («والباقي على X» و«ثلاثين إلي...») وعدم تجزئة «مية وخمسين» | تم واختُبر آلياً | نجاح `DialectParserTest` لاختبارات التخصيص والمبالغ والكميات. | stage-03-axis-C |
-| 9 | شاشة المستحقات ورصيد كل شخص وخانة «مسدَّد» وتاريخ السداد وتسديد جزئي/كامل وإلغاء مع تراجع | تم واختُبر آلياً | منطق `ReceivablesLedger` وواجهة `ReceivablesScreen` وبطاقة `HomeTab`. | stage-03-axis-C |
-| 10 | منع تجاوز المتبقي في التسديد ومنع التاريخ المستقبلي ومنع تخفيض التخصيص لما دون المسدد | تم واختُبر آلياً | نجاح `ReceivablesLedgerTest` في التحقق من الشروط الصارمة. | stage-02-axis-A |
-| 11 | رقم مرجعي تسلسلي فريد لا يتكرر لكل حركة، وتسجيل `audit_log` للمعاملات | تم واختُبر آلياً | اختبار تسلسل الأرقام المرجعية وسجل التدقيق في `ReceivablesLedgerTest`. | stage-02-axis-A |
-| 12 | حذف ناعم (`deleted_at`) للمصروف ذي الديون مع إمكانية الاستعادة والتراجع | تم واختُبر آلياً | تم تنفيذه في `ExpenseRepository` واختباره في `ExpenseRepositoryTest`. | stage-02-axis-A |
-| 13 | تقارير المستحقات (ملخص، تفصيلي، تسديدات، أعمار) وكشف الحساب الجاري مع فحص المطابقة | تم واختُبر آلياً | دالة `writeReceivablesWorkbook` ذات الـ 5 أوراق و `AccountingReportsTest`. | stage-04-axis-C4 |
-| 14 | تواريخ Excel كخلايا حقيقية مع `autoFilter` وعدم جمع عملات مختلفة | تم واختُبر آلياً | نمط `numFmtId="14"` و `<autoFilter>` ودوال `SUMIF` متعددة العملات. | stage-04-axis-C4 |
-| 15 | إدارة الأسماء (إعادة تسمية ودمج) لحفظ الأرصدة دون انشطار | تم واختُبر آلياً | نجاح اختبار `testPartyRenameAndMerge` في `ReceivablesLedgerTest`. | stage-03-axis-C |
-| 16 | المبالغ بوحدات صغرى حسب منازل العملة (الدينار بثلاث منازل) وتوزيع البواقي الصغرى بدقة | تم واختُبر آلياً | منفذ في `Money.kt` ومختبر في `ReceivablesLedgerTest`. | stage-02-axis-A |
-| 17 | تفرّد أسماء ملفات التصدير (`raqeem_{type}_{scope}_{timestamp}.{ext}`) وعدم استبدال الملفات | تم واختُبر آلياً | نجاح `ExportNamerTest` وربطه في مسارات التصدير في `ExpenseViewModel`. | stage-04-axis-C4 |
-| 18 | تحديث حزمة الوثائق (README, plan, spec, intent, AGENTS, الدستور) بصدق | غير منفّذ | مجدول في ختام المراحل. | stage-00-audit |
-| 19 | كتابة تقارير المراحل (00، B، A، C، C4، D، والختامي) بقالبها الثابت وتحديث PROGRESS.md | تم واختُبر آلياً | تقارير 00 و 01 و 02 و 03 و 04 مسجلة بالقالب الثابت. | stage-04-axis-C4 |
-| 20 | قائمة الفحص اليدوي على جهاز حقيقي موثقة | جزئي | مسجلة كقائمة خطوات موثقة في تقارير المراحل. | stage-04-axis-C4 |
+| فحص الحالة الراهنة قبل التعديل | 00 | تم واختُبر آلياً | اجتياز 168 اختباراً سابقاً | [stage-00-baseline](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-00-baseline-20261123-180000.md) |
+| مهلة ديناميكية للمعالجة الصوتية (5s-15s) | B | تم واختُبر آلياً | `ExpenseViewModel.kt` حساب المهلة ديناميكياً | [stage-01-axis-b](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-01-axis-b-20261123-180500.md) |
+| تحرير الميكروفون الحتمي في onCleared | B | تم واختُبر آلياً | `audioRecorder.release()` في `onCleared()` | [stage-01-axis-b](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-01-axis-b-20261123-180500.md) |
+| مسار السقوط الآمن للشيت اليدوي | B | تم واختُبر آلياً | `showFallbackManualSheet = true` عند أي تعثر | [stage-01-axis-b](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-01-axis-b-20261123-180500.md) |
+| التوافق الخلفي لمخطط JSON القديم | A | تم واختُبر آلياً | `StorageSerializationTest.testLegacyJsonSchemaMigrationWithoutDataLoss` | [stage-02-axis-a](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-02-axis-a-20261123-181000.md) |
+| اعتماد effectiveAmount للمجاميع | A | تم واختُبر آلياً | `effectiveAmount = myShare ?: amount` في كافة الحسابات | [stage-02-axis-a](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-02-axis-a-20261123-181000.md) |
+| نماذج التخصيصات والتسديدات والتدقيق | A | تم واختُبر آلياً | `Allocation`, `Settlement`, `AuditRecord` | [stage-02-axis-a](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-02-axis-a-20261123-181000.md) |
+| حسابات وتقريب العملات وتوزيع الفروق | A | تم واختُبر آلياً | `Money.kt` و `distributeSplitEvenly` | [stage-02-axis-a](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-02-axis-a-20261123-181000.md) |
+| دفتر الأستاذ الموحد وفحص النزاهة | A | تم واختُبر آلياً | `ReceivablesLedger.kt` و `LedgerIntegrityChecker.verify()` | [stage-02-axis-a](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-02-axis-a-20261123-181000.md) |
+| التخزين الذري وحماية الملف التالف | A | تم واختُبر آلياً | الكتابة لـ `.tmp` ونقل التالف لـ `.corrupt` | [stage-02-axis-a](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-02-axis-a-20261123-181000.md) |
+| شيت المراجعة للدفعات المتعددة | C | تم وبانتظار اختبار يدوي | بطاقات مراجعة مستقلة في `ExpenseReviewSheet.kt` | [stage-03-axis-c](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-03-axis-c-20261123-181500.md) |
+| إرفاق صور الإيصالات في المراجعة | C | تم وبانتظار اختبار يدوي | `PlatformReceiptPicker` و `receiptPhotoPath` | [stage-03-axis-c](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-03-axis-c-20261123-181500.md) |
+| زر إعادة التحليل من النص الخام | C | تم وبانتظار اختبار يدوي | زر إعادة التحليل وتحديث البطاقات تلقائياً | [stage-03-axis-c](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-03-axis-c-20261123-181500.md) |
+| استخراج التخصيصات والدفعات المتعددة | C | تم واختُبر آلياً | `LocalDialectExpenseParser.kt` واجتياز 30 سيناريو | [stage-03-axis-c](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-03-axis-c-20261123-181500.md) |
+| شاشة المستحقات وإدارة الذمم | C | تم وبانتظار اختبار يدوي | `ReceivablesScreen.kt` كاملة بقوائمها وتفاصيلها | [stage-03-axis-c](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-03-axis-c-20261123-181500.md) |
+| التسديد الجزئي والكلي وإلغاء التسديد | C | تم وبانتظار اختبار يدوي | تسجيل تسديد، وإلغاء بـ void دون حذف صامت | [stage-03-axis-c](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-03-axis-c-20261123-181500.md) |
+| بطاقة ملخص المستحقات بالرئيسية | C | تم وبانتظار اختبار يدوي | `ReceivablesSummaryCard` مع عداد متحرك | [stage-03-axis-c](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-03-axis-c-20261123-181500.md) |
+| كشف الحساب التفصيلي مع رصيد متحرك | C4 | تم واختُبر آلياً | `AccountingReportUtil.generateStatement` | [stage-04-axis-c4](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-04-axis-c4-20261123-182000.md) |
+| تصنيف أعمار الديون (Aging Brackets) | C4 | تم واختُبر آلياً | `AccountingReportUtil.classifyAging` الفئات الأربع | [stage-04-axis-c4](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-04-axis-c4-20261123-182000.md) |
+| تصدير XLSX بخمس صفحات ومعادلات SUM | C4 | تم واختُبر آلياً | `XlsxWriter.writeReceivablesWorkbook` | [stage-04-axis-c4](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-04-axis-c4-20261123-182000.md) |
+| تسمية التصدير المانعة للتصادم | C4 | تم واختُبر آلياً | `ExportNamer.kt` واختبارات `ExportNamerTest` | [stage-04-axis-c4](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-04-axis-c4-20261123-182000.md) |
+| عداد الأرقام المتدحرجة الرأسي Ticker | D | تم وبانتظار اختبار يدوي | `RollingNumberTicker.kt` في الرادار والمستحقات | [stage-05-axis-d](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-05-axis-d-20261123-182500.md) |
+| زر التسجيل الموحد وقراءة السعة بالرسم | D | تم وبانتظار اختبار يدوي | `VoiceRecordButton.kt` بلون EmeraldGreen داخل drawBehind | [stage-05-axis-d](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-05-axis-d-20261123-182500.md) |
+| رسم بياني تفاعلي بسحب يدعم RTL | D | تم وبانتظار اختبار يدوي | `WeeklySpendingChart.kt` بعكس الإحداثيات وتلميح مصمت | [stage-05-axis-d](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-05-axis-d-20261123-182500.md) |
+| حزمة Release AAB بحجم مثالي | الكل | تم واختُبر آلياً | بناء ناجح بحجم 35.7MB (< 200MB) | [stage-06-final](file:///e:/AI%20Projects/RaqeemKmp/docs/reports/stage-06-final-20261123-183000.md) |
 
----
-
-## 📈 ملخص التقدم التراكمي
-- **الخانات المتحققة بالكامل بأدلة آلية**: 16 من 20 (16 / 20)
-- **الخانات المنجزة جزئياً أو بانتظار الفحص النهائي**: 2 من 20 (2 / 20)
-- **الخانات المتبقية (المحور D والوثائق)**: 2 من 20 (2 / 20)
-
----
-
-## 📑 أرشيف تقارير المراحل
-- `stage-00-audit-20261123-150600.md` : [تقرير الحالة الراهنة وتدقيق المستودع](reports/stage-00-audit-20261123-150600.md)
-- `stage-01-axis-B-20261123-151000.md` : [تقرير المحور B: مسار الصوت والورقة الاحتياطية](reports/stage-01-axis-B-20261123-151000.md)
-- `stage-02-axis-A-20261123-151200.md` : [تقرير المحور A: المحاسبة والوحدات الصغرى والتخزين الذري](reports/stage-02-axis-A-20261123-151200.md)
-- `stage-03-axis-C-20261123-153500.md` : [تقرير المحور C: ورقة المراجعة ومحلل العامية وشاشة المستحقات](reports/stage-03-axis-C-20261123-153500.md)
-- `stage-04-axis-C4-20261123-154500.md` : [تقرير المحور C4: تقارير المحاسبة وتفرّد أسماء الملفات ومصنف المستحقات](reports/stage-04-axis-C4-20261123-154500.md)

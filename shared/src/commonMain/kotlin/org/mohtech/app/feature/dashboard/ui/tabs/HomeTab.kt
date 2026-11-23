@@ -13,8 +13,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -27,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.mohtech.app.core.theme.RaqeemColors
+import org.mohtech.app.core.ui.RollingNumberTicker
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
 import org.mohtech.app.feature.dashboard.ExpenseUiState
@@ -73,50 +78,14 @@ fun HomeTab(
             )
         }
 
+        // Receivables Summary Card (Axis C3)
         if (state.receivablesTotalRemaining > 0.0) {
             item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                        .background(RaqeemColors.SurfaceCard)
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(color = RaqeemColors.ElectricCyan.copy(alpha = 0.2f)),
-                            onClick = onOpenReceivables
-                        )
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "مستحقات لك لدى الآخرين",
-                                color = RaqeemColors.TextSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Normal
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "${state.receivablesTotalRemaining} ${state.activeCurrency}",
-                                color = RaqeemColors.ElectricCyan,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Text(
-                            text = "عرض الدفتر",
-                            color = RaqeemColors.EmeraldGreen,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+                ReceivablesSummaryCard(
+                    totalRemaining = state.receivablesTotalRemaining,
+                    currency = state.activeCurrency,
+                    onClick = onOpenReceivables
+                )
             }
         }
 
@@ -190,4 +159,78 @@ fun HomeTab(
         }
     }
 }
+
+/**
+ * ReceivablesSummaryCard:
+ * Signature home card showing total outstanding receivables owed to user.
+ * Tapping opens full ReceivablesScreen.
+ */
+@Composable
+fun ReceivablesSummaryCard(
+    totalRemaining: Double,
+    currency: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val formattedAmount = if (totalRemaining % 1.0 == 0.0) "${totalRemaining.toInt()}" else "$totalRemaining"
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
+            .background(RaqeemColors.SurfaceCard)
+            .border(1.dp, Color.White.copy(alpha = 0.08f), androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(RaqeemColors.ElectricCyan)
+                    )
+                    Text(
+                        text = "مستحقات لك (قيد التحصيل)",
+                        color = RaqeemColors.TextSecondary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                RollingNumberTicker(
+                    value = totalRemaining,
+                    currency = currency,
+                    fontSize = 24,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                    .background(RaqeemColors.SurfaceElevated)
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "عرض التفاصيل",
+                    color = RaqeemColors.EmeraldGreen,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
 

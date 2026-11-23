@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.mohtech.app.core.theme.RaqeemColors
+import org.mohtech.app.core.ui.RollingNumberTicker
 
 /**
  * BudgetRadarCard:
@@ -175,22 +176,12 @@ fun BudgetRadarCard(
                         fontWeight = FontWeight.Normal
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            text = if (todayTotal % 1.0 == 0.0) "${todayTotal.toInt()}" else "$todayTotal",
-                            color = RaqeemColors.TextPrimary,
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = currency,
-                            color = RaqeemColors.EmeraldGreen,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                    }
+                    RollingNumberTicker(
+                        value = todayTotal,
+                        currency = currency,
+                        fontSize = 32,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
 
                 // Weekly Total
@@ -202,22 +193,12 @@ fun BudgetRadarCard(
                         fontWeight = FontWeight.Normal
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            text = if (weeklyTotal % 1.0 == 0.0) "${weeklyTotal.toInt()}" else "$weeklyTotal",
-                            color = RaqeemColors.TextPrimary,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = currency,
-                            color = RaqeemColors.TextTertiary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Normal,
-                            modifier = Modifier.padding(bottom = 2.dp)
-                        )
-                    }
+                    RollingNumberTicker(
+                        value = weeklyTotal,
+                        currency = currency,
+                        fontSize = 20,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
 

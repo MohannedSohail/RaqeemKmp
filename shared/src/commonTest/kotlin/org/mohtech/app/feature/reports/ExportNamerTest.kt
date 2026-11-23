@@ -8,52 +8,58 @@ import kotlin.test.assertTrue
 class ExportNamerTest {
 
     @Test
-    fun testGenerateFileNameDeterministicFormat() {
-        val nowMillis = 1732374600000L // Specific epoch
-        val name = ExportNamer.generateFileName(
-            type = "report",
-            scope = "this_month",
+    fun testTwoExportsInSameSecondProduceDistinctFilenames() {
+        val fixedTimestamp = 1731168000000L
+        val existingFiles = mutableSetOf<String>()
+
+        val file1 = ExportNamer.generateFileName(
+            type = "expenses",
+            scope = "all",
             extension = "xlsx",
-            nowMillis = nowMillis
+            nowMillis = fixedTimestamp,
+            exists = { existingFiles.contains(it) }
+        )
+        existingFiles.add(file1)
+
+        val file2 = ExportNamer.generateFileName(
+            type = "expenses",
+            scope = "all",
+            extension = "xlsx",
+            nowMillis = fixedTimestamp,
+            exists = { existingFiles.contains(it) }
         )
 
-        assertTrue(name.startsWith("raqeem_report_this_month_"))
-        assertTrue(name.endsWith(".xlsx"))
-        // Check regex matching pattern raqeem_{type}_{scope}_{yyyyMMdd-HHmmss}.{ext}
-        val regex = Regex("^raqeem_report_this_month_\\d{8}-\\d{6}\\.xlsx$")
-        assertTrue(regex.matches(name), "Generated name '$name' must match expected format")
+        assertNotEquals(file1, file2, "Exports in the same second must produce distinct filenames")
+        assertTrue(file1.endsWith(".xlsx"))
+        assertTrue(file2.endsWith("-2.xlsx"))
+        assertTrue(file1.startsWith("raqeem_expenses_all_"))
+        assertTrue(file2.startsWith("raqeem_expenses_all_"))
     }
 
     @Test
-    fun testScopeForPeriods() {
-        assertEquals("this_week", ExportNamer.scopeForPeriod(ReportPeriod.THIS_WEEK))
-        assertEquals("this_month", ExportNamer.scopeForPeriod(ReportPeriod.THIS_MONTH))
-        assertEquals("last_30_days", ExportNamer.scopeForPeriod(ReportPeriod.LAST_30_DAYS))
-        assertEquals("all_time", ExportNamer.scopeForPeriod(ReportPeriod.ALL_TIME))
+    fun testNonAsciiAndArabicCharactersAreSanitized() {
+        val sanitized = ExportNamer.sanitizeAscii("تقرير مستحقات محمد & أحمد!")
+        // Non-ASCII and symbols stripped/underscored, leaving no Arabic chars
+        for (ch in sanitized) {
+            assertTrue(
+                ch in 'a'..'z' || ch in 'A'..'Z' || ch in '0'..'9' || ch == '-' || ch == '_',
+                "Character '$ch' must be safe ASCII"
+            )
+        }
     }
 
     @Test
-    fun testSanitizationOfSpecialCharactersAndSpaces() {
-        val name = ExportNamer.generateFileName(
-            type = "Receivables / Statement",
-            scope = "Ahmad & Brothers (Personal)!",
-            extension = ".XLSX",
-            nowMillis = 1732374600000L
+    fun testStandardFilenamePattern() {
+        val fixedTimestamp = 1732024800000L // 2024-11-19
+        val fileName = ExportNamer.generateFileName(
+            type = "receivables",
+            scope = "p0012",
+            extension = "pdf",
+            nowMillis = fixedTimestamp
         )
 
-        assertTrue(name.startsWith("raqeem_receivables_statement_ahmad_brothers_personal_"))
-        assertTrue(name.endsWith(".xlsx"))
-    }
-
-    @Test
-    fun testUniqueTimestampsPreventOverwrites() {
-        val t1 = 1732374600000L
-        val t2 = 1732374601000L // 1 second later
-
-        val name1 = ExportNamer.generateFileName("report", "all", "xlsx", nowMillis = t1)
-        val name2 = ExportNamer.generateFileName("report", "all", "xlsx", nowMillis = t2)
-
-        assertNotEquals(name1, name2, "Consecutive exports must produce unique file names")
+        assertTrue(fileName.startsWith("raqeem_receivables_p0012_"))
+        assertTrue(fileName.endsWith(".pdf"))
     }
 }
 

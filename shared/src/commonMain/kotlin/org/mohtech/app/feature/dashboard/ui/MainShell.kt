@@ -280,12 +280,12 @@ fun MainShell(
             )
         }
 
-        // Receivables / Debts Screen Overlay
+        // Receivables Screen Overlay (Axis C3)
         if (state.showReceivablesScreen) {
             ReceivablesScreen(
                 state = state,
                 viewModel = viewModel,
-                onClose = {
+                onBack = {
                     viewModel.handleIntent(ExpenseIntent.CloseReceivables)
                 }
             )

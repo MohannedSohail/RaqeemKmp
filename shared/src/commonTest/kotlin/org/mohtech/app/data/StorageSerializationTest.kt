@@ -248,4 +248,84 @@ class StorageSerializationTest {
         assertEquals(audit.action, deserialized.action)
         assertEquals(audit.details, deserialized.details)
     }
+
+    @Test
+    fun testLegacyJsonSchemaMigrationWithoutDataLoss() {
+        // Genuine legacy JSON payload without myShare, allocations, refNo, deletedAt, or receiptPhotoPath
+        val legacyJsonString = """
+            [
+              {
+                "id": "exp_legacy_01",
+                "title": "بنزين ب 50 شيكل",
+                "amount": 50.0,
+                "currency": "₪",
+                "category": "TRANSPORT",
+                "timestamp": 1731168000000,
+                "payer": {
+                  "id": "self",
+                  "name": "أنا",
+                  "isCurrentUser": true
+                },
+                "split": {
+                  "totalAmount": 50.0,
+                  "payer": {
+                    "id": "self",
+                    "name": "أنا",
+                    "isCurrentUser": true
+                  },
+                  "participants": [
+                    {
+                      "id": "self",
+                      "name": "أنا",
+                      "isCurrentUser": true
+                    }
+                  ],
+                  "amountPerPerson": 50.0,
+                  "note": ""
+                },
+                "proofType": "NONE",
+                "rawSpokenText": "بنزين ب 50 شيكل"
+              },
+              {
+                "id": "exp_legacy_02",
+                "title": "قهوة بعشرة",
+                "amount": 10.0,
+                "currency": "₪",
+                "category": "DINING",
+                "timestamp": 1731168005000,
+                "payer": {
+                  "id": "self",
+                  "name": "أنا",
+                  "isCurrentUser": true
+                },
+                "proofType": "NONE",
+                "rawSpokenText": "قهوة بعشرة"
+              }
+            ]
+        """.trimIndent()
+
+        // 1. Strict parsing: Must decode without throwing
+        val items = json.decodeFromString<List<ExpenseItem>>(legacyJsonString)
+        assertEquals(2, items.size, "Must decode exactly 2 legacy records")
+
+        val item1 = items[0]
+        assertEquals("exp_legacy_01", item1.id)
+        assertEquals(50.0, item1.amount)
+        assertEquals(null, item1.myShare, "Legacy item must default myShare to null")
+        assertEquals(50.0, item1.effectiveAmount, "Effective amount must fallback to amount when myShare is null")
+        assertNotNull(item1.split)
+        assertTrue(item1.split?.allocations?.isEmpty() == true, "Legacy split allocations must default to emptyList()")
+        assertEquals(null, item1.receiptPhotoPath)
+        assertEquals(null, item1.deletedAt)
+
+        val item2 = items[1]
+        assertEquals("exp_legacy_02", item2.id)
+        assertEquals(10.0, item2.effectiveAmount)
+
+        // 2. Idempotence test: Re-encoding and decoding twice produces exact same count and identities
+        val reEncoded = json.encodeToString(items)
+        val secondPass = json.decodeFromString<List<ExpenseItem>>(reEncoded)
+        assertEquals(2, secondPass.size)
+        assertEquals(items.map { it.id }, secondPass.map { it.id })
+    }
 }

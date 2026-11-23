@@ -208,27 +208,29 @@ fun ExpenseItemCard(
                                     color = RaqeemColors.TextTertiary,
                                     fontSize = 11.sp
                                 )
-                            } else if (item.split != null) {
-                                if (item.split.allocations.isNotEmpty()) {
-                                    val rem = item.split.allocations.sumOf { alloc ->
-                                        val settled = alloc.settlements.filter { it.voidedAt == null }.sumOf { it.amount }
-                                        (alloc.amount - settled).coerceAtLeast(0.0)
-                                    }
-                                    val badgeText = if (rem <= 0.0) "مسدَّد" else "قيد التحصيل $rem ${item.currency}"
-                                    val badgeColor = if (rem <= 0.0) RaqeemColors.EmeraldGreen else RaqeemColors.AmberWarning
-                                    Text(
-                                        text = "• $badgeText",
-                                        color = badgeColor,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                } else {
-                                    Text(
-                                        text = "• ${item.split.note.ifBlank { "مشاركة" }}",
-                                        color = RaqeemColors.TextTertiary,
-                                        fontSize = 11.sp
-                                    )
+                            } else if (item.split?.allocations?.isNotEmpty() == true) {
+                                val allocs = item.split.allocations
+                                val totalAlloc = allocs.sumOf { it.amount }
+                                val settledAlloc = allocs.sumOf { alloc ->
+                                    alloc.settlements.filter { it.voidedAt == null }.sumOf { it.amount }
                                 }
+                                val remaining = (totalAlloc - settledAlloc).coerceAtLeast(0.0)
+                                val remFormatted = if (remaining % 1.0 == 0.0) "${remaining.toInt()}" else "$remaining"
+                                val badgeText = if (remaining <= 0.0) "مسدد" else "قيد التحصيل $remFormatted ${item.currency}"
+                                val badgeColor = if (remaining <= 0.0) RaqeemColors.EmeraldGreen else RaqeemColors.CoralRose
+
+                                Text(
+                                    text = "• $badgeText",
+                                    color = badgeColor,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            } else if (item.split != null) {
+                                Text(
+                                    text = "• ${item.split.note.ifBlank { "مشاركة" }}",
+                                    color = RaqeemColors.TextTertiary,
+                                    fontSize = 11.sp
+                                )
                             }
                         }
                     }

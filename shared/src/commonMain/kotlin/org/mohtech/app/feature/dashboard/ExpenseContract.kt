@@ -140,7 +140,6 @@ sealed interface ExpenseIntent {
     data class SelectReportPeriod(val period: ReportPeriod) : ExpenseIntent
     data object ExportExcelReport : ExpenseIntent
     data object ExportPdfReport : ExpenseIntent
-    data object ExportReceivablesExcel : ExpenseIntent
     data object DismissExportResult : ExpenseIntent
     data object OpenManualSheet : ExpenseIntent
     data object DismissReviewSheet : ExpenseIntent
@@ -160,6 +159,7 @@ sealed interface ExpenseIntent {
         val expenseId: String,
         val settlementId: String
     ) : ExpenseIntent
+    data object ExportReceivablesExcel : ExpenseIntent
     data class RenameParty(val oldName: String, val newName: String) : ExpenseIntent
     data class MergeParties(val sourceName: String, val targetName: String) : ExpenseIntent
 }

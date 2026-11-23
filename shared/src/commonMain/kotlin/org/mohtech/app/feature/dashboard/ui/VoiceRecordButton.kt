@@ -1,11 +1,8 @@
 package org.mohtech.app.feature.dashboard.ui
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,9 +15,11 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -28,17 +27,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import org.mohtech.app.core.haptics.HapticFeedbackType
+import org.mohtech.app.core.haptics.HapticKind
 import org.mohtech.app.core.haptics.LocalRaqeemHaptics
 import org.mohtech.app.core.theme.RaqeemColors
 
 /**
  * VoiceRecordButton:
- * High-precision, tactile voice input instrument.
- * Unslop Principles:
- * - Quiet chrome, purposeful state transition.
- * - Single-hue acoustic ripple without multi-color neon haze.
- * - Generous touch target (88dp container, 64dp core).
+ * High-precision tactile voice input instrument.
+ * Unslop & Performance Principles (Axis D2):
+ * - Single-hue fintech brand color strictly: EmeraldGreen #00C48C (no multi-color neon haze).
+ * - Spring expansion on recording state transition.
+ * - Amplitude is read strictly in Draw Phase (drawBehind) to guarantee 60fps without recomposing button every frame.
+ * - Start/stop haptic feedback via RaqeemHaptics.
  */
 @Composable
 fun VoiceRecordButton(
@@ -48,85 +48,64 @@ fun VoiceRecordButton(
     modifier: Modifier = Modifier
 ) {
     val haptics = LocalRaqeemHaptics.current
-    val infiniteTransition = rememberInfiniteTransition(label = "voicePulse")
+    val currentAmpState = rememberUpdatedState(amplitude)
 
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = if (isRecording) 1.28f + (amplitude * 0.22f) else 1.04f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = if (isRecording) 550 else 2200,
-                easing = FastOutSlowInEasing
-            ),
-            repeatMode = RepeatMode.Reverse
+    // Spring expansion for tactile state transition
+    val springScale by animateFloatAsState(
+        targetValue = if (isRecording) 1.12f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
         ),
-        label = "pulseScale"
-    )
-
-    val rippleAlpha by infiniteTransition.animateFloat(
-        initialValue = if (isRecording) 0.35f else 0.12f,
-        targetValue = if (isRecording) 0.05f else 0.02f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = if (isRecording) 550 else 2200,
-                easing = FastOutSlowInEasing
-            ),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "rippleAlpha"
+        label = "micSpringScale"
     )
 
     Box(
-        modifier = modifier.size(92.dp),
+        modifier = modifier
+            .size(92.dp)
+            .drawBehind {
+                // DRAW PHASE: read amplitude here to eliminate per-frame recomposition
+                val amp = currentAmpState.value.coerceIn(0f, 1f)
+                val centerOffset = Offset(size.width / 2f, size.height / 2f)
+                val baseRadius = (32.dp.toPx()) * springScale
+
+                if (isRecording) {
+                    // Outer quiet wave ring 1
+                    val ring1Radius = baseRadius + (14.dp.toPx() * amp)
+                    drawCircle(
+                        color = RaqeemColors.EmeraldGreen.copy(alpha = 0.12f + (amp * 0.18f)),
+                        radius = ring1Radius,
+                        center = centerOffset
+                    )
+
+                    // Outer hairline acoustic ring 2
+                    val ring2Radius = baseRadius + (8.dp.toPx() * amp)
+                    drawCircle(
+                        color = RaqeemColors.EmeraldGreen.copy(alpha = 0.25f + (amp * 0.35f)),
+                        radius = ring2Radius,
+                        center = centerOffset,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
-        // Acoustic Wave Ring (Single-hue, purposeful, quiet)
+        // Core Tactile Mic Trigger: Single brand hue (EmeraldGreen)
         Box(
             modifier = Modifier
-                .size(76.dp)
+                .size(64.dp * springScale)
                 .clip(CircleShape)
-                .background(
-                    if (isRecording) {
-                        RaqeemColors.CoralRose.copy(alpha = rippleAlpha)
-                    } else {
-                        RaqeemColors.EmeraldGreen.copy(alpha = rippleAlpha)
-                    }
-                )
-        )
-
-        // Outer Hairline Ring (Expands dynamically on sound amplitude)
-        Canvas(modifier = Modifier.size(72.dp * pulseScale)) {
-            val sw = 1.5.dp.toPx()
-            val ringColor = if (isRecording) {
-                RaqeemColors.CoralRose.copy(alpha = rippleAlpha * 2f)
-            } else {
-                Color.White.copy(alpha = 0.08f)
-            }
-            drawCircle(
-                color = ringColor,
-                radius = size.minDimension / 2f - sw,
-                style = Stroke(width = sw)
-            )
-        }
-
-        // Core Tactile Mic Trigger
-        Box(
-            modifier = Modifier
-                .size(64.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isRecording) RaqeemColors.CoralRose else RaqeemColors.EmeraldGreen
-                )
+                .background(RaqeemColors.EmeraldGreen)
                 .border(
                     1.dp,
-                    if (isRecording) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.15f),
+                    Color.White.copy(alpha = 0.20f),
                     CircleShape
                 )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = ripple(bounded = true, color = RaqeemColors.BackgroundSlate),
                     onClick = {
-                        haptics.trigger(HapticFeedbackType.SubtleTick)
+                        haptics.perform(HapticKind.CONFIRM)
                         onRecordToggle()
                     }
                 ),

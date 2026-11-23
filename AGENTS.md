@@ -109,14 +109,15 @@ The swarm operates under the **Spec-Kit SDLC Protocol**:
 ---
 
 ### 6. `@security-perf` (Hardware Defense & Performance Auditor)
-* **Domain:** Android Audio hardware contention prevention, mic release lifecycles, memory leak elimination, RTL a11y audit.
+* **Domain:** Audio hardware contention prevention, mic release lifecycles, memory leak elimination, Draw Phase 60fps optimization, RTL a11y audit.
 * **Responsibilities:**
-  - Implement the **Dual-Branch Hardware Fallback Pipeline**:
-    - Verify `SpeechRecognizer.isRecognitionAvailable(context)` AND `PackageManager.queryIntentActivities()`.
-    - If Google Speech Services is present: utilize native on-device speech pipeline.
-    - If absent (HyperOS, Xiaomi, Huawei, or offline AOSP): safely record local AAC audio via `MediaRecorder` and present immediate polite Arabic fallback sheet (keyboard mic / preset chips).
-  - Enforce `AudioRecord` / `MediaRecorder` safe release in `onCleared()` / `DisposableEffect`.
-  - Audit composable recomposition scopes and avoid heavy allocations inside `@Composable` functions.
+  - Implement the **100% Offline On-Device Audio Pipeline**:
+    - Capture raw 16kHz Mono 16-bit PCM via native `AudioRecord` with immediate RMS amplitude calculation.
+    - Feed samples directly into local `whisper.cpp` engine without any system or cloud speech dependencies.
+    - If model is absent or transcription fails/times out, immediately display the polite Arabic fallback sheet (keyboard input / preset chips).
+  - Enforce `AudioRecord` safe release (`stop()` and `release()`) in `finally` blocks, and free native whisper/audio engines strictly in `ViewModel.onCleared()`.
+  - Enforce Draw Phase isolation: read real-time recording amplitude in `drawBehind` / `graphicsLayer` to eliminate per-frame recomposition.
+  - Audit composable recomposition scopes and avoid allocations inside `@Composable` functions.
   - Verify accessibility contrast and RTL mirror symmetry.
 * **Skills Activated:** `flutter_a11y_agent` (a11y principles), `compose-ui`.
 

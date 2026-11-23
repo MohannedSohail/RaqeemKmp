@@ -58,13 +58,13 @@ class LocalDialectExpenseParser {
         val currency = detectCurrency(normalizedText, defaultCurrency)
 
         // 2. Check for Allocation / Debt Distribution format
-        val allocationBatch = tryParseAllocations(spokenText, normalizedText, currency, ts, currentTimestamp)
+        val allocationBatch = tryParseAllocations(spokenText, normalizedText, currency, ts)
         if (allocationBatch != null) {
             return allocationBatch
         }
 
         // 3. Check for Multi-Item Spoken Phrase (e.g. "دفعت 30 بنزين و15 قهوة و100 سوبرماركت")
-        val multiItemBatch = tryParseMultiItems(spokenText, normalizedText, currency, ts, currentTimestamp)
+        val multiItemBatch = tryParseMultiItems(spokenText, normalizedText, currency, ts)
         if (multiItemBatch != null) {
             return multiItemBatch
         }
@@ -83,7 +83,7 @@ class LocalDialectExpenseParser {
             amount = amount,
             currency = currency,
             category = category,
-            timestamp = currentTimestamp,
+            timestamp = ts,
             payer = payer,
             split = split,
             proofType = ProofType.NONE,
@@ -103,8 +103,7 @@ class LocalDialectExpenseParser {
         spokenText: String,
         normalizedText: String,
         currency: String,
-        ts: Long,
-        currentTimestamp: Long
+        ts: Long
     ): ExpenseBatch? {
         val hasMyShareKeyword = normalizedText.contains("إلي") || normalizedText.contains("لي") ||
             normalizedText.contains("نصيبي") || normalizedText.contains("حصتي")
@@ -222,7 +221,7 @@ class LocalDialectExpenseParser {
             amount = totalAmount,
             currency = currency,
             category = category,
-            timestamp = currentTimestamp,
+            timestamp = ts,
             payer = payer,
             split = split,
             proofType = ProofType.NONE,
@@ -242,8 +241,7 @@ class LocalDialectExpenseParser {
         spokenText: String,
         normalizedText: String,
         currency: String,
-        ts: Long,
-        currentTimestamp: Long
+        ts: Long
     ): ExpenseBatch? {
         if (normalizedText.contains("بيني وبين") || normalizedText.contains("قسمة علينا") ||
             normalizedText.contains("النص بالنص") || normalizedText.contains("سددت عن") ||
@@ -276,7 +274,7 @@ class LocalDialectExpenseParser {
                     amount = segAmt,
                     currency = currency,
                     category = segCategory,
-                    timestamp = currentTimestamp,
+                    timestamp = ts,
                     payer = Payer("self", "أنا", true),
                     proofType = ProofType.NONE,
                     rawSpokenText = trimmedSeg

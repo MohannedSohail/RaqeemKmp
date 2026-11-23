@@ -103,7 +103,6 @@ class ExpenseViewModel(
             is ExpenseIntent.SelectReportPeriod -> selectReportPeriod(intent.period)
             is ExpenseIntent.ExportExcelReport -> exportExcelReport()
             is ExpenseIntent.ExportPdfReport -> exportPdfReport()
-            is ExpenseIntent.ExportReceivablesExcel -> exportReceivablesExcel()
             is ExpenseIntent.DismissExportResult -> dismissExportResult()
             is ExpenseIntent.OpenManualSheet -> openManualSheet()
             is ExpenseIntent.DismissReviewSheet -> dismissReviewSheet()
@@ -123,6 +122,7 @@ class ExpenseViewModel(
                 expenseId = intent.expenseId,
                 settlementId = intent.settlementId
             )
+            is ExpenseIntent.ExportReceivablesExcel -> exportReceivablesExcel()
             is ExpenseIntent.RenameParty -> renameParty(intent.oldName, intent.newName)
             is ExpenseIntent.MergeParties -> mergeParties(intent.sourceName, intent.targetName)
         }
@@ -898,7 +898,7 @@ class ExpenseViewModel(
                 val bytes = XlsxWriter.write(report)
                 val scope = ExportNamer.scopeForPeriod(_uiState.value.selectedReportPeriod)
                 val fileName = ExportNamer.generateFileName(
-                    type = "report",
+                    type = "expenses",
                     scope = scope,
                     extension = "xlsx"
                 )
@@ -940,7 +940,7 @@ class ExpenseViewModel(
                 if (bytes != null && bytes.isNotEmpty()) {
                     val scope = ExportNamer.scopeForPeriod(_uiState.value.selectedReportPeriod)
                     val fileName = ExportNamer.generateFileName(
-                        type = "report",
+                        type = "expenses",
                         scope = scope,
                         extension = "pdf"
                     )
@@ -984,7 +984,7 @@ class ExpenseViewModel(
                 val bytes = XlsxWriter.writeReceivablesWorkbook(_uiState.value.recentExpenses)
                 val fileName = ExportNamer.generateFileName(
                     type = "receivables",
-                    scope = "ledger",
+                    scope = "all",
                     extension = "xlsx"
                 )
                 val path = writeExportFileToCache(fileName, bytes)
@@ -998,59 +998,16 @@ class ExpenseViewModel(
                     )
                 }
                 _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
-                _effects.emit(ExpenseEffect.ShowMessage("تم تجهيز دفتر المستحقات بصيغة Excel بنجاح", MessageKind.SUCCESS))
+                _effects.emit(ExpenseEffect.ShowMessage("تم تجهيز تقرير المستحقات بنجاح", MessageKind.SUCCESS))
             } catch (_: Throwable) {
                 _uiState.update {
                     it.copy(
                         isExportingReport = false,
-                        exportErrorMessage = "تعذر إنشاء دفتر المستحقات"
+                        exportErrorMessage = "تعذر إنشاء تقرير المستحقات، يرجى المحاولة لاحقاً"
                     )
                 }
-                _effects.emit(ExpenseEffect.ShowMessage("تعذر تصدير دفتر المستحقات", MessageKind.ERROR))
+                _effects.emit(ExpenseEffect.ShowMessage("تعذر إنشاء تقرير المستحقات", MessageKind.ERROR))
             }
-        }
-    }
-
-    private fun dismissExportResult() {
-        _uiState.update {
-            it.copy(
-                exportSuccessPath = null,
-                exportSuccessName = null,
-                exportSuccessSize = 0L,
-                exportMimeType = null,
-                exportErrorMessage = null
-            )
-        }
-    }
-
-    private fun openManualSheet() {
-        _uiState.update {
-            it.copy(
-                showFallbackManualSheet = true,
-                reviewSheetPendingBatch = null
-            )
-        }
-    }
-
-    private fun dismissReviewSheet() {
-        _uiState.update {
-            it.copy(
-                reviewSheetPendingBatch = null,
-                processingStage = ProcessingStage.IDLE
-            )
-        }
-    }
-
-    private fun dismissFallbackSheet() {
-        _uiState.update { it.copy(showFallbackManualSheet = false) }
-    }
-
-    private fun dismissPermissionRationale() {
-        _uiState.update {
-            it.copy(
-                showPermissionRationaleDialog = false,
-                showPermissionRationaleSheet = false
-            )
         }
     }
 
@@ -1158,6 +1115,49 @@ class ExpenseViewModel(
                 _effects.emit(ExpenseEffect.Haptic(HapticKind.REJECT))
                 _effects.emit(ExpenseEffect.ShowMessage(t.message ?: "تعذر دمج الأسماء", MessageKind.ERROR))
             }
+        }
+    }
+
+    private fun dismissExportResult() {
+        _uiState.update {
+            it.copy(
+                exportSuccessPath = null,
+                exportSuccessName = null,
+                exportSuccessSize = 0L,
+                exportMimeType = null,
+                exportErrorMessage = null
+            )
+        }
+    }
+
+    private fun openManualSheet() {
+        _uiState.update {
+            it.copy(
+                showFallbackManualSheet = true,
+                reviewSheetPendingBatch = null
+            )
+        }
+    }
+
+    private fun dismissReviewSheet() {
+        _uiState.update {
+            it.copy(
+                reviewSheetPendingBatch = null,
+                processingStage = ProcessingStage.IDLE
+            )
+        }
+    }
+
+    private fun dismissFallbackSheet() {
+        _uiState.update { it.copy(showFallbackManualSheet = false) }
+    }
+
+    private fun dismissPermissionRationale() {
+        _uiState.update {
+            it.copy(
+                showPermissionRationaleDialog = false,
+                showPermissionRationaleSheet = false
+            )
         }
     }
 

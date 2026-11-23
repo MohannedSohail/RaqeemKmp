@@ -198,7 +198,8 @@ fun ReportsTab(
             WeeklySpendingChart(
                 expenses = state.recentExpenses,
                 weeklyBudget = state.weeklyBudget,
-                currency = state.activeCurrency
+                currency = state.activeCurrency,
+                weekStartDayIso = state.weekStartDay
             )
         }
 
