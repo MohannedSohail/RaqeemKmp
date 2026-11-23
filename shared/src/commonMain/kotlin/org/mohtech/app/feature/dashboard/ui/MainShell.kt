@@ -68,6 +68,7 @@ import org.mohtech.app.feature.dashboard.ui.tabs.HistoryTab
 import org.mohtech.app.feature.dashboard.ui.tabs.HomeTab
 import org.mohtech.app.feature.dashboard.ui.tabs.ReportsTab
 import org.mohtech.app.feature.dashboard.ui.tabs.SettingsTab
+import org.mohtech.app.feature.dashboard.ui.receivables.ReceivablesScreen
 import org.mohtech.app.feature.reports.PlatformReportBridge
 
 /**
@@ -276,6 +277,17 @@ fun MainShell(
                     showBudgetEditor = false
                 },
                 onDismiss = { showBudgetEditor = false }
+            )
+        }
+
+        // Receivables / Debts Screen Overlay
+        if (state.showReceivablesScreen) {
+            ReceivablesScreen(
+                state = state,
+                viewModel = viewModel,
+                onClose = {
+                    viewModel.handleIntent(ExpenseIntent.CloseReceivables)
+                }
             )
         }
     }
@@ -569,6 +581,9 @@ private fun MainTabContainer(
                         },
                         onChangeCategory = { item, cat ->
                             viewModel.handleIntent(ExpenseIntent.ChangeCategory(item, cat))
+                        },
+                        onOpenReceivables = {
+                            viewModel.handleIntent(ExpenseIntent.OpenReceivables)
                         }
                     )
                 }

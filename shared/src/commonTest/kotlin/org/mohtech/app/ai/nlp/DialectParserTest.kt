@@ -262,4 +262,115 @@ class DialectParserTest {
         assertTrue(id2.startsWith("exp_"), "Item ID must start with exp_")
         assertTrue(id1 != id2, "Rapidly parsed items must have unique IDs")
     }
+
+    // 26. Multi-item parsing: "دفعت 30 بنزين و15 قهوة و100 سوبرماركت"
+    @Test
+    fun testMultiItemAmountAnchoredParsing() {
+        val result = parser.parseSpokenText(
+            "دفعت 30 بنزين و15 قهوة و100 سوبرماركت",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        assertEquals(3, result.items.size, "Batch must contain exactly 3 items")
+        assertEquals(145.0, result.totalBatchAmount)
+
+        val item1 = result.items[0]
+        assertEquals(30.0, item1.amount)
+        assertEquals("بنزين", item1.title)
+        assertEquals(ExpenseCategory.TRANSPORT, item1.category)
+
+        val item2 = result.items[1]
+        assertEquals(15.0, item2.amount)
+        assertEquals("قهوة", item2.title)
+        assertEquals(ExpenseCategory.DINING, item2.category)
+
+        val item3 = result.items[2]
+        assertEquals(100.0, item3.amount)
+        assertEquals("سوبرماركت", item3.title)
+        assertEquals(ExpenseCategory.GROCERIES, item3.category)
+    }
+
+    // 27. Multi-party allocation: "مية شيكل ثلاثين إلي وأربعين للبيت وثلاثين لأخوي"
+    @Test
+    fun testMultiPartyAllocationExtraction() {
+        val result = parser.parseSpokenText(
+            "مية شيكل ثلاثين إلي وأربعين للبيت وثلاثين لأخوي",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        assertEquals(1, result.items.size)
+        val item = result.items.first()
+        assertEquals(100.0, item.amount)
+        assertEquals(30.0, item.myShare)
+
+        val split = item.split
+        assertNotNull(split)
+        assertEquals(2, split.allocations.size)
+
+        val allocHome = split.allocations.find { it.party.name == "البيت" }
+        assertNotNull(allocHome)
+        assertEquals(40.0, allocHome.amount)
+
+        val allocBrother = split.allocations.find { it.party.name == "أخوي" }
+        assertNotNull(allocBrother)
+        assertEquals(30.0, allocBrother.amount)
+
+        // Strict accounting identity: myShare + sum(allocations) == totalAmount
+        val allocSum = split.allocations.sumOf { it.amount }
+        assertEquals(100.0, (item.myShare ?: 0.0) + allocSum)
+    }
+
+    // 28. Remainder allocation: "مية شيكل نصيبي ثلاثين والباقي على محمد"
+    @Test
+    fun testRemainderAllocationExtraction() {
+        val result = parser.parseSpokenText(
+            "مية شيكل نصيبي ثلاثين والباقي على محمد",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        assertEquals(1, result.items.size)
+        val item = result.items.first()
+        assertEquals(100.0, item.amount)
+        assertEquals(30.0, item.myShare)
+
+        val split = item.split
+        assertNotNull(split)
+        assertEquals(1, split.allocations.size)
+
+        val allocMohammed = split.allocations.first()
+        assertEquals("محمد", allocMohammed.party.name)
+        assertEquals(70.0, allocMohammed.amount)
+        assertEquals(100.0, (item.myShare ?: 0.0) + allocMohammed.amount)
+    }
+
+    // 29. Multi-item with "ب" notation: "بنزين ب 40 وقهوة ب 12"
+    @Test
+    fun testMultiItemWithPrepositionNotation() {
+        val result = parser.parseSpokenText(
+            "بنزين ب 40 وقهوة ب 12",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        assertEquals(2, result.items.size)
+        assertEquals(52.0, result.totalBatchAmount)
+
+        assertEquals(40.0, result.items[0].amount)
+        assertEquals(ExpenseCategory.TRANSPORT, result.items[0].category)
+
+        assertEquals(12.0, result.items[1].amount)
+        assertEquals(ExpenseCategory.DINING, result.items[1].category)
+    }
+
+    // 30. Quantity rejection with digit: "2 كيلو تفاح ب 20 شيكل"
+    @Test
+    fun testQuantityRejectionWithDigit() {
+        val result = parser.parseSpokenText(
+            "2 كيلو تفاح ب 20 شيكل",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        val item = result.items.first()
+        assertEquals(20.0, item.amount)
+        assertEquals(ExpenseCategory.GROCERIES, item.category)
+    }
 }

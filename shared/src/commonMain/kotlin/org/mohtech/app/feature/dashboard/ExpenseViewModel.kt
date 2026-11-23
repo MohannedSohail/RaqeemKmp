@@ -24,6 +24,7 @@ import org.mohtech.app.ai.whisper.SpeechError
 import org.mohtech.app.ai.whisper.TranscribeResult
 import org.mohtech.app.ai.whisper.WhisperModelConfig
 import org.mohtech.app.core.haptics.HapticKind
+import org.mohtech.app.data.accounting.ReceivablesLedger
 import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
@@ -107,6 +108,21 @@ class ExpenseViewModel(
             is ExpenseIntent.DismissFallbackSheet -> dismissFallbackSheet()
             is ExpenseIntent.DismissPermissionRationale -> dismissPermissionRationale()
             is ExpenseIntent.CompleteOnboarding -> completeOnboarding()
+            is ExpenseIntent.OpenReceivables -> _uiState.update { it.copy(showReceivablesScreen = true) }
+            is ExpenseIntent.CloseReceivables -> _uiState.update { it.copy(showReceivablesScreen = false) }
+            is ExpenseIntent.RecordSettlement -> recordSettlement(
+                expenseId = intent.expenseId,
+                allocationId = intent.allocationId,
+                amount = intent.amount,
+                settledAt = intent.settledAt,
+                note = intent.note
+            )
+            is ExpenseIntent.VoidSettlement -> voidSettlement(
+                expenseId = intent.expenseId,
+                settlementId = intent.settlementId
+            )
+            is ExpenseIntent.RenameParty -> renameParty(intent.oldName, intent.newName)
+            is ExpenseIntent.MergeParties -> mergeParties(intent.sourceName, intent.targetName)
         }
     }
 
@@ -144,6 +160,9 @@ class ExpenseViewModel(
                     weekStartDayIso = preferences.getWeekStartDay()
                 )
 
+                val activeCur = preferences.getPreferredCurrency()
+                val totalReceivables = ReceivablesLedger.getTotalRemaining(expenses, activeCur)
+
                 _uiState.update { state ->
                     state.copy(
                         isLoading = false,
@@ -153,10 +172,11 @@ class ExpenseViewModel(
                         weeklyTotal = weeklyTotal,
                         weeklyBudget = preferences.getWeeklyBudget(),
                         weekStartDay = preferences.getWeekStartDay(),
-                        activeCurrency = preferences.getPreferredCurrency(),
+                        activeCurrency = activeCur,
                         isOnboardingDone = preferences.isOnboardingCompleted(),
                         isHardwareSpeechAvailable = voiceEngine?.isAvailable() ?: false,
-                        reportData = report
+                        reportData = report,
+                        receivablesTotalRemaining = totalReceivables
                     )
                 }
             }
@@ -755,6 +775,14 @@ class ExpenseViewModel(
                     _uiState.update { it.copy(highlightedExpenseId = restored.id) }
                     _effects.emit(ExpenseEffect.ShowToast("تم استرجاع التصنيف السابق"))
                 }
+                is UndoOperation.SettlementRecorded -> {
+                    repository.updateExpense(undo.previousExpense)
+                    _effects.emit(ExpenseEffect.ShowToast("تم التراجع عن تسجيل السداد"))
+                }
+                is UndoOperation.SettlementVoided -> {
+                    repository.updateExpense(undo.previousExpense)
+                    _effects.emit(ExpenseEffect.ShowToast("تم التراجع عن إلغاء السداد"))
+                }
             }
         }
     }
@@ -977,6 +1005,113 @@ class ExpenseViewModel(
                 showPermissionRationaleDialog = false,
                 showPermissionRationaleSheet = false
             )
+        }
+    }
+
+    private fun recordSettlement(
+        expenseId: String,
+        allocationId: String,
+        amount: Double,
+        settledAt: Long,
+        note: String
+    ) {
+        viewModelScope.launch {
+            try {
+                val expense = repository.getAllExpenses().firstOrNull { it.id == expenseId } ?: return@launch
+                val updatedExpense = ReceivablesLedger.recordSettlement(
+                    expense = expense,
+                    allocationId = allocationId,
+                    amount = amount,
+                    settledAt = settledAt,
+                    note = note
+                )
+                val newSettlementId = updatedExpense.split?.allocations
+                    ?.firstOrNull { it.id == allocationId }
+                    ?.settlements?.lastOrNull()?.id ?: ""
+
+                repository.updateExpense(updatedExpense)
+                val undoOp = UndoOperation.SettlementRecorded(
+                    expenseId = expenseId,
+                    allocationId = allocationId,
+                    settlementId = newSettlementId,
+                    previousExpense = expense
+                )
+                _uiState.update { it.copy(lastUndoOperation = undoOp) }
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+                _effects.emit(
+                    ExpenseEffect.ShowMessage(
+                        message = "تم تسجيل السداد بنجاح",
+                        kind = MessageKind.SUCCESS,
+                        undo = undoOp
+                    )
+                )
+            } catch (t: Throwable) {
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.REJECT))
+                _effects.emit(ExpenseEffect.ShowMessage(t.message ?: "تعذر تسجيل السداد", MessageKind.ERROR))
+            }
+        }
+    }
+
+    private fun voidSettlement(
+        expenseId: String,
+        settlementId: String
+    ) {
+        viewModelScope.launch {
+            try {
+                val expense = repository.getAllExpenses().firstOrNull { it.id == expenseId } ?: return@launch
+                val updatedExpense = ReceivablesLedger.voidSettlement(
+                    expense = expense,
+                    settlementId = settlementId
+                )
+                repository.updateExpense(updatedExpense)
+                val undoOp = UndoOperation.SettlementVoided(
+                    expenseId = expenseId,
+                    settlementId = settlementId,
+                    previousExpense = expense
+                )
+                _uiState.update { it.copy(lastUndoOperation = undoOp) }
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+                _effects.emit(
+                    ExpenseEffect.ShowMessage(
+                        message = "تم إلغاء السداد",
+                        kind = MessageKind.INFO,
+                        undo = undoOp
+                    )
+                )
+            } catch (t: Throwable) {
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.REJECT))
+                _effects.emit(ExpenseEffect.ShowMessage(t.message ?: "تعذر إلغاء السداد", MessageKind.ERROR))
+            }
+        }
+    }
+
+    private fun renameParty(oldName: String, newName: String) {
+        viewModelScope.launch {
+            try {
+                val current = repository.getAllExpenses()
+                val updated = ReceivablesLedger.renameParty(current, oldName, newName)
+                updated.forEach { repository.updateExpense(it) }
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+                _effects.emit(ExpenseEffect.ShowMessage("تم تعديل الاسم بنجاح", MessageKind.SUCCESS))
+            } catch (t: Throwable) {
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.REJECT))
+                _effects.emit(ExpenseEffect.ShowMessage(t.message ?: "تعذر تعديل الاسم", MessageKind.ERROR))
+            }
+        }
+    }
+
+    private fun mergeParties(sourceName: String, targetName: String) {
+        viewModelScope.launch {
+            try {
+                val current = repository.getAllExpenses()
+                val updated = ReceivablesLedger.mergeParties(current, sourceName, targetName)
+                updated.forEach { repository.updateExpense(it) }
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+                _effects.emit(ExpenseEffect.ShowMessage("تم دمج الأسماء وتوحيد الأرصدة بنجاح", MessageKind.SUCCESS))
+            } catch (t: Throwable) {
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.REJECT))
+                _effects.emit(ExpenseEffect.ShowMessage(t.message ?: "تعذر دمج الأسماء", MessageKind.ERROR))
+            }
         }
     }
 

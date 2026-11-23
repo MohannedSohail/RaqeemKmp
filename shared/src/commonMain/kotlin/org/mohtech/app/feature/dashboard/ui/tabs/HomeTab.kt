@@ -1,5 +1,7 @@
 package org.mohtech.app.feature.dashboard.ui.tabs
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +21,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,6 +49,7 @@ fun HomeTab(
     onRequestDelete: (ExpenseItem) -> Unit,
     onRequestRepeat: (ExpenseItem) -> Unit,
     onChangeCategory: (ExpenseItem, ExpenseCategory) -> Unit,
+    onOpenReceivables: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val top5Expenses = remember(state.recentExpenses) {
@@ -66,6 +71,53 @@ fun HomeTab(
                 weeklyBudget = state.weeklyBudget,
                 onConfigureBudget = onConfigureBudget
             )
+        }
+
+        if (state.receivablesTotalRemaining > 0.0) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                        .background(RaqeemColors.SurfaceCard)
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(color = RaqeemColors.ElectricCyan.copy(alpha = 0.2f)),
+                            onClick = onOpenReceivables
+                        )
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "مستحقات لك لدى الآخرين",
+                                color = RaqeemColors.TextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Normal
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "${state.receivablesTotalRemaining} ${state.activeCurrency}",
+                                color = RaqeemColors.ElectricCyan,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Text(
+                            text = "عرض الدفتر",
+                            color = RaqeemColors.EmeraldGreen,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
 
         item {

@@ -209,11 +209,26 @@ fun ExpenseItemCard(
                                     fontSize = 11.sp
                                 )
                             } else if (item.split != null) {
-                                Text(
-                                    text = "• ${item.split.note.ifBlank { "مشاركة" }}",
-                                    color = RaqeemColors.TextTertiary,
-                                    fontSize = 11.sp
-                                )
+                                if (item.split.allocations.isNotEmpty()) {
+                                    val rem = item.split.allocations.sumOf { alloc ->
+                                        val settled = alloc.settlements.filter { it.voidedAt == null }.sumOf { it.amount }
+                                        (alloc.amount - settled).coerceAtLeast(0.0)
+                                    }
+                                    val badgeText = if (rem <= 0.0) "مسدَّد" else "قيد التحصيل $rem ${item.currency}"
+                                    val badgeColor = if (rem <= 0.0) RaqeemColors.EmeraldGreen else RaqeemColors.AmberWarning
+                                    Text(
+                                        text = "• $badgeText",
+                                        color = badgeColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                } else {
+                                    Text(
+                                        text = "• ${item.split.note.ifBlank { "مشاركة" }}",
+                                        color = RaqeemColors.TextTertiary,
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
                         }
                     }

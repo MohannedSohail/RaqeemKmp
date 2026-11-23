@@ -40,6 +40,17 @@ sealed interface UndoOperation {
     data class Deleted(val item: ExpenseItem) : UndoOperation
     data class Repeated(val newItemId: String) : UndoOperation
     data class CategoryChanged(val item: ExpenseItem, val previousCategory: ExpenseCategory) : UndoOperation
+    data class SettlementRecorded(
+        val expenseId: String,
+        val allocationId: String,
+        val settlementId: String,
+        val previousExpense: ExpenseItem
+    ) : UndoOperation
+    data class SettlementVoided(
+        val expenseId: String,
+        val settlementId: String,
+        val previousExpense: ExpenseItem
+    ) : UndoOperation
 }
 
 enum class MessageKind {
@@ -84,7 +95,9 @@ data class ExpenseUiState(
     val exportSuccessName: String? = null,
     val exportSuccessSize: Long = 0L,
     val exportMimeType: String? = null,
-    val exportErrorMessage: String? = null
+    val exportErrorMessage: String? = null,
+    val showReceivablesScreen: Boolean = false,
+    val receivablesTotalRemaining: Double = 0.0
 ) {
     val dailyTotal: Double get() = todayTotal
     val isProcessing: Boolean get() = processingStage != ProcessingStage.IDLE
@@ -133,6 +146,21 @@ sealed interface ExpenseIntent {
     data object DismissFallbackSheet : ExpenseIntent
     data object DismissPermissionRationale : ExpenseIntent
     data object CompleteOnboarding : ExpenseIntent
+    data object OpenReceivables : ExpenseIntent
+    data object CloseReceivables : ExpenseIntent
+    data class RecordSettlement(
+        val expenseId: String,
+        val allocationId: String,
+        val amount: Double,
+        val settledAt: Long,
+        val note: String = ""
+    ) : ExpenseIntent
+    data class VoidSettlement(
+        val expenseId: String,
+        val settlementId: String
+    ) : ExpenseIntent
+    data class RenameParty(val oldName: String, val newName: String) : ExpenseIntent
+    data class MergeParties(val sourceName: String, val targetName: String) : ExpenseIntent
 }
 
 sealed interface ExpenseEffect {

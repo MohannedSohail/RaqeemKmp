@@ -20,14 +20,20 @@ class LocalDialectExpenseParser {
     companion object {
         private var idCounter: Long = 1000L
         fun nextSequence(): Long = ++idCounter
+
+        private val quantityUnits = setOf(
+            "كيلو", "كيلوغرام", "كيلو غرام", "كغ", "غرام", "جرام", "لتر", "علبة", "علب",
+            "حبة", "حبات", "كرتونة", "باكيت", "ربطة", "قرص"
+        )
     }
 
     private val numberWordTokens = setOf(
-        "نص", "ربع", "واحد", "واحدة", "اثنين", "اتنين", "ثلاثة", "تلاتة", "أربعة", "اربعة", "خمسة",
-        "ستة", "سبعة", "ثمانية", "تمانية", "تسعة", "عشرة",
+        "نص", "ربع", "واحد", "واحدة", "اثنين", "اتنين", "ثلاث", "تلات", "ثلاثة", "تلاتة",
+        "أربع", "اربع", "أربعة", "اربعة", "خمس", "خمسة",
+        "ست", "ستة", "سبع", "سبعة", "ثمان", "تمان", "ثمانية", "تمانية", "تسع", "تسعة", "عشر", "عشرة",
         "عشرين", "ثلاثين", "تلاتين", "أربعين", "اربعين", "خمسين", "ستين", "سبعين", "ثمانين", "تمانين", "تسعين",
-        "مية", "مائة", "مئة", "ميتين", "مائتين", "مئتين", "ثلاثمية", "تلاتمية", "أربعمية", "اربعمية",
-        "خمسمية", "خمسمائة", "ستمية", "سبعمية", "ثمانمية", "تمانمية", "تسعمية",
+        "مية", "مائة", "مئة", "ميه", "ميتين", "مائتين", "مئتين", "ثلاثمية", "تلاتمية", "أربعمية", "اربعمية",
+        "خمسمية", "خمسمائة", "خمسمئة", "ستمية", "سبعمية", "ثمانمية", "تمانمية", "تسعمية",
         "ألف", "الف", "ألفين", "الفين", "آلاف", "الاف"
     )
 
@@ -44,27 +50,31 @@ class LocalDialectExpenseParser {
         defaultCurrency: String = "₪",
         currentTimestamp: Long = 0L
     ): ExpenseBatch {
-        val normalizedText = ArabicNumberNormalizer.convertIndicDigitsToAscii(spokenText.trim())
+        val trimmed = spokenText.trim()
+        val normalizedText = ArabicNumberNormalizer.convertIndicDigitsToAscii(trimmed)
+        val ts = if (currentTimestamp > 0L) currentTimestamp else Clock.System.now().toEpochMilliseconds()
 
         // 1. Detect Currency
         val currency = detectCurrency(normalizedText, defaultCurrency)
 
-        // 2. Detect Amount
+        // 2. Check for Allocation / Debt Distribution format
+        val allocationBatch = tryParseAllocations(spokenText, normalizedText, currency, ts, currentTimestamp)
+        if (allocationBatch != null) {
+            return allocationBatch
+        }
+
+        // 3. Check for Multi-Item Spoken Phrase (e.g. "دفعت 30 بنزين و15 قهوة و100 سوبرماركت")
+        val multiItemBatch = tryParseMultiItems(spokenText, normalizedText, currency, ts, currentTimestamp)
+        if (multiItemBatch != null) {
+            return multiItemBatch
+        }
+
+        // 4. Single-Item Fallback Parsing
         val amount = extractAmount(normalizedText)
-
-        // 3. Detect Category
         val category = detectCategory(normalizedText)
-
-        // 4. Detect Payer
         val payer = detectPayer(normalizedText)
-
-        val ts = if (currentTimestamp > 0L) currentTimestamp else Clock.System.now().toEpochMilliseconds()
         val seq = nextSequence()
-
-        // 5. Detect Split
         val (split, calculatedMyShare) = detectSplit(normalizedText, amount, currency, payer, ts, seq)
-
-        // 6. Extract Clean Title
         val title = extractTitle(spokenText, category)
 
         val item = ExpenseItem(
@@ -82,11 +92,212 @@ class LocalDialectExpenseParser {
         )
 
         return ExpenseBatch(
-            batchId = "batch_${currentTimestamp}",
+            batchId = "batch_$ts",
             items = listOf(item),
             totalBatchAmount = amount,
-            createdAt = currentTimestamp
+            createdAt = ts
         )
+    }
+
+    private fun tryParseAllocations(
+        spokenText: String,
+        normalizedText: String,
+        currency: String,
+        ts: Long,
+        currentTimestamp: Long
+    ): ExpenseBatch? {
+        val hasMyShareKeyword = normalizedText.contains("إلي") || normalizedText.contains("لي") ||
+            normalizedText.contains("نصيبي") || normalizedText.contains("حصتي")
+        val hasRemainderKeyword = normalizedText.contains("الباقي على") || normalizedText.contains("والباقي على") ||
+            normalizedText.contains("الباقي ل") || normalizedText.contains("والباقي ل")
+        val hasPartyKeyword = Regex("""(?:^|\s)(?:و)?(?:[0-9]+|[^\s,]+)\s+ل[^\s,]+""").containsMatchIn(normalizedText)
+
+        if (!hasMyShareKeyword && !hasRemainderKeyword && !hasPartyKeyword) {
+            return null
+        }
+
+        // Try extracting total amount from the first clause or overall text
+        val firstClause = normalizedText.split(
+            Regex("""(?=\b(?:ثلاثين|أربعين|عشرين|خمسين|ستين|سبعين|ثمانين|تسعين|مية|مائة|خمسمية|ألف|نصيبي|حصتي|إلي|لي|[0-9]+\s*(?:إلي|لي|نصيبي|حصتي|للبيت|ل))\b)""")
+        ).firstOrNull() ?: normalizedText
+        var totalAmount = extractAmount(firstClause)
+        if (totalAmount <= 0.0) {
+            totalAmount = extractAmount(normalizedText)
+        }
+        if (totalAmount <= 0.0) return null
+
+        var myShare: Double? = null
+        val allocations = mutableListOf<Allocation>()
+        val seq = nextSequence()
+
+        // 1. My Share: "ثلاثين إلي", "30 إلي", "نصيبي ثلاثين", "نصيبي 30", "حصتي 30", "30 لي"
+        val mySharePatterns = listOf(
+            Regex("""(?:نصيبي|حصتي)\s+([0-9]+(?:\.[0-9]+)?|[^\s,]+)"""),
+            Regex("""([0-9]+(?:\.[0-9]+)?|[^\s,]+)\s+(?:إلي|لي|نصيبي|حصتي)""")
+        )
+        for (p in mySharePatterns) {
+            val m = p.find(normalizedText)
+            if (m != null) {
+                val token = m.groupValues[1].trim()
+                val parsedAmt = parseAmountToken(token)
+                if (parsedAmt != null && parsedAmt > 0.0) {
+                    myShare = parsedAmt
+                    break
+                }
+            }
+        }
+
+        // 2. Explicitly allocated parties: e.g. "أربعين للبيت", "وثلاثين لأخوي", "40 للبيت", "30 لمحمد"
+        val allocRegex = Regex("""(?:^|\s)(?:و)?([0-9]+(?:\.[0-9]+)?|[^\s,]+)\s+ل([^\s,]+)""")
+        allocRegex.findAll(normalizedText).forEach { match ->
+            val amtToken = match.groupValues[1].trim()
+            val rawParty = match.groupValues[2].trim()
+
+            if (rawParty != "ي" && rawParty != "نا" && rawParty != "ي_" && rawParty != "كم") {
+                val parsedAmt = parseAmountToken(amtToken)
+                if (parsedAmt != null && parsedAmt > 0.0) {
+                    val partyName = when {
+                        rawParty.startsWith("ل") && !rawParty.startsWith("لا") -> "ا" + rawParty
+                        else -> rawParty
+                    }
+                    if (allocations.none { it.party.name == partyName }) {
+                        val payer = Payer(id = partyName, name = partyName, isCurrentUser = false)
+                        allocations.add(
+                            Allocation(
+                                id = "alloc_${ts}_${seq}_${partyName}",
+                                party = payer,
+                                amount = parsedAmt,
+                                note = "مخصص لـ $partyName"
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        // 3. Remainder: e.g. "والباقي على محمد", "الباقي على البيت"
+        val remainderRegex = Regex("""(?:والباقي|الباقي)\s+(?:على|ل)\s+([^\s,]+)""")
+        val remainderMatch = remainderRegex.find(normalizedText)
+        if (remainderMatch != null) {
+            val partyName = remainderMatch.groupValues[1].trim()
+            val currentSum = (myShare ?: 0.0) + allocations.sumOf { it.amount }
+            val remainderAmt = (totalAmount - currentSum).coerceAtLeast(0.0)
+            if (remainderAmt > 0.0 && allocations.none { it.party.name == partyName }) {
+                val payer = Payer(id = partyName, name = partyName, isCurrentUser = false)
+                allocations.add(
+                    Allocation(
+                        id = "alloc_${ts}_${seq}_${partyName}",
+                        party = payer,
+                        amount = remainderAmt,
+                        note = "الباقي على $partyName"
+                    )
+                )
+            }
+        }
+
+        if (allocations.isEmpty() && myShare == null) {
+            return null
+        }
+
+        if (myShare == null && allocations.isNotEmpty()) {
+            myShare = (totalAmount - allocations.sumOf { it.amount }).coerceAtLeast(0.0)
+        }
+
+        val category = detectCategory(normalizedText)
+        val payer = detectPayer(normalizedText)
+        val title = extractTitle(spokenText, category)
+
+        val split = ExpenseSplit(
+            totalAmount = totalAmount,
+            payer = payer,
+            participants = listOf(Payer("self", "أنا", true)) + allocations.map { it.party },
+            amountPerPerson = myShare ?: totalAmount,
+            note = "توزيع مستحقات",
+            allocations = allocations
+        )
+
+        val item = ExpenseItem(
+            id = "exp_${ts}_$seq",
+            title = title,
+            amount = totalAmount,
+            currency = currency,
+            category = category,
+            timestamp = currentTimestamp,
+            payer = payer,
+            split = split,
+            proofType = ProofType.NONE,
+            rawSpokenText = spokenText,
+            myShare = myShare
+        )
+
+        return ExpenseBatch(
+            batchId = "batch_$ts",
+            items = listOf(item),
+            totalBatchAmount = totalAmount,
+            createdAt = ts
+        )
+    }
+
+    private fun tryParseMultiItems(
+        spokenText: String,
+        normalizedText: String,
+        currency: String,
+        ts: Long,
+        currentTimestamp: Long
+    ): ExpenseBatch? {
+        if (normalizedText.contains("بيني وبين") || normalizedText.contains("قسمة علينا") ||
+            normalizedText.contains("النص بالنص") || normalizedText.contains("سددت عن") ||
+            normalizedText.contains("دفعت عن") || normalizedText.contains("دفع عني") ||
+            normalizedText.contains("سدد عني") || normalizedText.contains("على حساب")
+        ) {
+            return null
+        }
+
+        // Split on conjunction 'و' when followed by a number or an item with amount
+        val rawSegments = normalizedText.split(Regex("""(?<=[^\s])\s+و(?=\s*[0-9]+|\s*[^\s]+\s+ب\s*[0-9]+)"""))
+        if (rawSegments.size < 2) {
+            return null
+        }
+
+        val items = mutableListOf<ExpenseItem>()
+        for (seg in rawSegments) {
+            val trimmedSeg = seg.trim()
+            val segAmt = extractAmount(trimmedSeg)
+            if (segAmt <= 0.0) {
+                return null
+            }
+            val segCategory = detectCategory(trimmedSeg)
+            val segTitle = extractTitle(trimmedSeg, segCategory)
+            val segSeq = nextSequence()
+            items.add(
+                ExpenseItem(
+                    id = "exp_${ts}_$segSeq",
+                    title = segTitle,
+                    amount = segAmt,
+                    currency = currency,
+                    category = segCategory,
+                    timestamp = currentTimestamp,
+                    payer = Payer("self", "أنا", true),
+                    proofType = ProofType.NONE,
+                    rawSpokenText = trimmedSeg
+                )
+            )
+        }
+
+        if (items.size < 2) return null
+
+        return ExpenseBatch(
+            batchId = "batch_$ts",
+            items = items,
+            totalBatchAmount = items.sumOf { it.amount },
+            createdAt = ts
+        )
+    }
+
+    private fun parseAmountToken(token: String): Double? {
+        val clean = token.removePrefix("و").removePrefix("ب").trim()
+        clean.toDoubleOrNull()?.let { return it }
+        return ArabicNumberNormalizer.parseArabicNumberWords(clean)
     }
 
     private fun detectCurrency(text: String, defaultCurrency: String): String {
@@ -113,10 +324,18 @@ class LocalDialectExpenseParser {
             it.groupValues[1].toDoubleOrNull()?.let { amt -> return amt }
         }
 
-        // Generic standalone digit (fallback if no 'ب' or currency next to it)
+        // Generic standalone digit (make sure it's not a quantity like "2 كيلو")
         val standaloneDigitRegex = Regex("""\b([0-9]+(?:\.[0-9]+)?)\b""")
-        standaloneDigitRegex.find(text)?.let {
-            it.groupValues[1].toDoubleOrNull()?.let { amt -> return amt }
+        for (match in standaloneDigitRegex.findAll(text)) {
+            val amt = match.groupValues[1].toDoubleOrNull()
+            if (amt != null) {
+                val afterIndex = match.range.last + 1
+                val afterText = if (afterIndex < text.length) text.substring(afterIndex).trimStart() else ""
+                val firstWordAfter = afterText.split(Regex("\\s+")).firstOrNull() ?: ""
+                if (!quantityUnits.contains(firstWordAfter)) {
+                    return amt
+                }
+            }
         }
 
         // Check Arabic Number Words (e.g. "بعشرة", "مية وخمسين", "خمسمية", "بستين", "بثلاثين", "ألفين وميتين", "عشرين")
@@ -126,8 +345,10 @@ class LocalDialectExpenseParser {
             val w = words[i].trim()
             val cleanW = w.removePrefix("ب").removePrefix("و")
 
+            val isFollowedByQuantity = (i + 1 < words.size && quantityUnits.contains(words[i + 1].trim()))
+
             // Check if this token starts an Arabic number word sequence
-            if (numberWordTokens.contains(cleanW) && cleanW != "نص" && cleanW != "ربع") {
+            if (numberWordTokens.contains(cleanW) && !isFollowedByQuantity && cleanW != "نص" && cleanW != "ربع") {
                 val candidateTokens = mutableListOf<String>()
                 candidateTokens.add(w)
                 var j = i + 1
@@ -179,7 +400,8 @@ class LocalDialectExpenseParser {
             lower.contains("برافو") || lower.contains("بقالة") || lower.contains("تموينات") ||
             lower.contains("خضار") || lower.contains("فواكه") || lower.contains("حليب") ||
             lower.contains("لبن") || lower.contains("بيض") || lower.contains("جبنة") ||
-            lower.contains("خبز") || wordTokens.contains("رز") -> ExpenseCategory.GROCERIES
+            lower.contains("خبز") || lower.contains("تفاح") || lower.contains("لحمة") ||
+            lower.contains("دجاج") || wordTokens.contains("رز") -> ExpenseCategory.GROCERIES
 
             // Bills
             lower.contains("فاتورة") || lower.contains("كهرباء") || lower.contains("مياه") ||
@@ -400,6 +622,7 @@ class LocalDialectExpenseParser {
             ExpenseCategory.GENERAL -> {
                 when {
                     spokenText.contains("هدية") -> "هدية"
+                    spokenText.contains("للبيت") || spokenText.contains("نصيبي") || spokenText.contains("إلي") -> "مصروف مشترك"
                     else -> "مصروف عام"
                 }
             }

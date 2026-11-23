@@ -64,8 +64,17 @@ class LocalExpenseRepository(
     }
 
     override suspend fun deleteExpense(id: String) {
-        storage.deleteExpense(id)
-        _expensesFlow.value = _expensesFlow.value.filter { it.id != id }.distinctBy { it.id }
+        val currentItem = _expensesFlow.value.find { it.id == id }
+        if (currentItem != null && currentItem.split?.allocations?.isNotEmpty() == true) {
+            val softDeleted = currentItem.copy(deletedAt = Clock.System.now().toEpochMilliseconds())
+            storage.saveExpense(softDeleted)
+            val current = _expensesFlow.value.filter { it.id != id }.toMutableList()
+            current.add(softDeleted)
+            _expensesFlow.value = current.distinctBy { it.id }.sortedByDescending { it.timestamp }
+        } else {
+            storage.deleteExpense(id)
+            _expensesFlow.value = _expensesFlow.value.filter { it.id != id }.distinctBy { it.id }
+        }
     }
 
     override suspend fun getAllExpenses(): List<ExpenseItem> {

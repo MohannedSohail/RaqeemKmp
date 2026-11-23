@@ -574,5 +574,65 @@ class ReceivablesLedgerTest {
             Money.distributeSplitEvenly(-10.0, "₪", 2)
         }
     }
+
+    // 10. Party name management: rename and merge without balance fracture
+    @Test
+    fun testPartyRenameAndMerge() {
+        val expense1 = ExpenseItem(
+            id = "exp_01",
+            title = "غداء عمل",
+            amount = 100.0,
+            currency = "₪",
+            category = ExpenseCategory.DINING,
+            timestamp = 1731168000000L,
+            payer = selfUser,
+            split = ExpenseSplit(
+                totalAmount = 100.0,
+                payer = selfUser,
+                participants = listOf(selfUser, Payer(id = "p1", name = "أحمد محمد")),
+                amountPerPerson = 50.0,
+                allocations = listOf(
+                    Allocation(id = "a1", party = Payer(id = "p1", name = "أحمد محمد"), amount = 50.0)
+                )
+            ),
+            myShare = 50.0
+        )
+
+        val expense2 = ExpenseItem(
+            id = "exp_02",
+            title = "قهوة",
+            amount = 30.0,
+            currency = "₪",
+            category = ExpenseCategory.DINING,
+            timestamp = 1731168100000L,
+            payer = selfUser,
+            split = ExpenseSplit(
+                totalAmount = 30.0,
+                payer = selfUser,
+                participants = listOf(selfUser, Payer(id = "p2", name = "احمد")),
+                amountPerPerson = 15.0,
+                allocations = listOf(
+                    Allocation(id = "a2", party = Payer(id = "p2", name = "احمد"), amount = 15.0)
+                )
+            ),
+            myShare = 15.0
+        )
+
+        val list = listOf(expense1, expense2)
+
+        // Rename "أحمد محمد" to "أحمد م."
+        val renamed = ReceivablesLedger.renameParty(list, "أحمد محمد", "أحمد م.")
+        assertEquals("أحمد م.", renamed[0].split?.allocations?.first()?.party?.name)
+
+        // Merge "احمد" into "أحمد م."
+        val merged = ReceivablesLedger.mergeParties(renamed, "احمد", "أحمد م.")
+        assertEquals("أحمد م.", merged[1].split?.allocations?.first()?.party?.name)
+
+        // Check summaries: both allocations now belong to "أحمد م." with total 65.0
+        val summaries = ReceivablesLedger.getPartySummaries(merged)
+        assertEquals(1, summaries.size)
+        assertEquals("أحمد م.", summaries[0].party.name)
+        assertEquals(65.0, summaries[0].totalRemainingToMe)
+    }
 }
 

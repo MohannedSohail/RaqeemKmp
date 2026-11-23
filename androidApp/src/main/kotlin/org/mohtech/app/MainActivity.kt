@@ -16,6 +16,8 @@ import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import org.mohtech.app.ai.audio.AndroidVoiceBridge
 import org.mohtech.app.data.storage.AndroidContextHolder
+import org.mohtech.app.feature.receipts.PlatformReceiptPicker
+import org.mohtech.app.feature.receipts.ReceiptPickerBridge
 import org.mohtech.app.feature.reports.AndroidReportBridge
 import java.io.File
 
@@ -24,6 +26,30 @@ class MainActivity : ComponentActivity() {
     private var onPermissionGrantedCallback: (() -> Unit)? = null
     private var onPermissionDeniedCallback: (() -> Unit)? = null
     private var pendingFileToSave: String? = null
+    private var onReceiptPickedCallback: ((String?) -> Unit)? = null
+    private var targetReceiptExpenseId: String = ""
+
+    private val pickReceiptLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val receiptsDir = File(filesDir, "receipts").apply { if (!exists()) mkdirs() }
+                val destFile = File(receiptsDir, "${targetReceiptExpenseId}.jpg")
+                contentResolver.openInputStream(uri)?.use { inStream ->
+                    destFile.outputStream().use { outStream ->
+                        inStream.copyTo(outStream)
+                    }
+                }
+                onReceiptPickedCallback?.invoke(destFile.absolutePath)
+            } catch (_: Throwable) {
+                onReceiptPickedCallback?.invoke(null)
+            }
+        } else {
+            onReceiptPickedCallback?.invoke(null)
+        }
+        onReceiptPickedCallback = null
+    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -81,6 +107,15 @@ class MainActivity : ComponentActivity() {
             createDocumentLauncher.launch(defaultFileName)
         }
 
+        // Wire PlatformReceiptPicker delegate for local receipt photo storage
+        PlatformReceiptPicker.delegate = object : ReceiptPickerBridge {
+            override fun launchPicker(expenseId: String, onImagePicked: (String?) -> Unit) {
+                targetReceiptExpenseId = expenseId
+                onReceiptPickedCallback = onImagePicked
+                pickReceiptLauncher.launch("image/*")
+            }
+        }
+
         setContent {
             App(
                 onRequestMicPermission = {
@@ -130,6 +165,8 @@ class MainActivity : ComponentActivity() {
         AndroidVoiceBridge.micPermissionLauncher = null
         AndroidReportBridge.shareFileDelegate = null
         AndroidReportBridge.saveDocumentLauncher = null
+        PlatformReceiptPicker.delegate = null
+        onReceiptPickedCallback = null
         onPermissionGrantedCallback = null
         onPermissionDeniedCallback = null
         pendingFileToSave = null

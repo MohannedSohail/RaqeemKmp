@@ -560,5 +560,99 @@ object RaqeemIcons {
             drawPath(arrow2, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
     }
+
+    @Composable
+    fun Plus(
+        modifier: Modifier = Modifier,
+        size: Dp = 18.dp,
+        tint: Color = RaqeemColors.EmeraldGreen,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.5f, h * 0.22f),
+                end = Offset(w * 0.5f, h * 0.78f),
+                strokeWidth = sw,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.22f, h * 0.5f),
+                end = Offset(w * 0.78f, h * 0.5f),
+                strokeWidth = sw,
+                cap = StrokeCap.Round
+            )
+        }
+    }
+
+    @Composable
+    fun Refresh(
+        modifier: Modifier = Modifier,
+        size: Dp = 16.dp,
+        tint: Color = RaqeemColors.ElectricCyan,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            drawArc(
+                color = tint,
+                startAngle = 45f,
+                sweepAngle = 270f,
+                useCenter = false,
+                topLeft = Offset(w * 0.18f, h * 0.18f),
+                size = Size(w * 0.64f, h * 0.64f),
+                style = Stroke(width = sw, cap = StrokeCap.Round)
+            )
+
+            // Arrow head
+            val arrow = Path().apply {
+                moveTo(w * 0.70f, h * 0.15f)
+                lineTo(w * 0.85f, h * 0.28f)
+                lineTo(w * 0.68f, h * 0.38f)
+            }
+            drawPath(arrow, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+    }
+
+    @Composable
+    fun Receipt(
+        modifier: Modifier = Modifier,
+        size: Dp = 18.dp,
+        tint: Color = RaqeemColors.TextSecondary,
+        strokeWidth: Dp = 1.75.dp
+    ) {
+        Canvas(modifier = modifier.size(size)) {
+            val sw = strokeWidth.toPx()
+            val w = this.size.width
+            val h = this.size.height
+
+            val receiptPath = Path().apply {
+                moveTo(w * 0.22f, h * 0.15f)
+                lineTo(w * 0.78f, h * 0.15f)
+                lineTo(w * 0.78f, h * 0.85f)
+                lineTo(w * 0.68f, h * 0.80f)
+                lineTo(w * 0.58f, h * 0.85f)
+                lineTo(w * 0.48f, h * 0.80f)
+                lineTo(w * 0.38f, h * 0.85f)
+                lineTo(w * 0.28f, h * 0.80f)
+                lineTo(w * 0.22f, h * 0.85f)
+                close()
+            }
+            drawPath(receiptPath, color = tint, style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+            // Text lines on receipt
+            drawLine(color = tint.copy(alpha = 0.7f), start = Offset(w * 0.34f, h * 0.34f), end = Offset(w * 0.66f, h * 0.34f), strokeWidth = sw * 0.8f, cap = StrokeCap.Round)
+            drawLine(color = tint.copy(alpha = 0.7f), start = Offset(w * 0.34f, h * 0.48f), end = Offset(w * 0.66f, h * 0.48f), strokeWidth = sw * 0.8f, cap = StrokeCap.Round)
+            drawLine(color = tint.copy(alpha = 0.7f), start = Offset(w * 0.34f, h * 0.62f), end = Offset(w * 0.52f, h * 0.62f), strokeWidth = sw * 0.8f, cap = StrokeCap.Round)
+        }
+    }
 }
 
