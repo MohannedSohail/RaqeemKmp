@@ -31,6 +31,7 @@ import org.mohtech.app.data.model.ExpenseItem
 import org.mohtech.app.data.model.ProofType
 import org.mohtech.app.data.repository.ExpenseRepository
 import org.mohtech.app.data.storage.AppPreferences
+import org.mohtech.app.feature.reports.ExportNamer
 import org.mohtech.app.feature.reports.PdfReportWriter
 import org.mohtech.app.feature.reports.ReportBuilder
 import org.mohtech.app.feature.reports.ReportPeriod
@@ -102,6 +103,7 @@ class ExpenseViewModel(
             is ExpenseIntent.SelectReportPeriod -> selectReportPeriod(intent.period)
             is ExpenseIntent.ExportExcelReport -> exportExcelReport()
             is ExpenseIntent.ExportPdfReport -> exportPdfReport()
+            is ExpenseIntent.ExportReceivablesExcel -> exportReceivablesExcel()
             is ExpenseIntent.DismissExportResult -> dismissExportResult()
             is ExpenseIntent.OpenManualSheet -> openManualSheet()
             is ExpenseIntent.DismissReviewSheet -> dismissReviewSheet()
@@ -894,7 +896,12 @@ class ExpenseViewModel(
                     _uiState.value.weekStartDay
                 )
                 val bytes = XlsxWriter.write(report)
-                val fileName = "raqeem_report_${report.generatedDateFormatted}.xlsx"
+                val scope = ExportNamer.scopeForPeriod(_uiState.value.selectedReportPeriod)
+                val fileName = ExportNamer.generateFileName(
+                    type = "report",
+                    scope = scope,
+                    extension = "xlsx"
+                )
                 val path = writeExportFileToCache(fileName, bytes)
                 _uiState.update {
                     it.copy(
@@ -931,7 +938,12 @@ class ExpenseViewModel(
                 val writer = PdfReportWriter()
                 val bytes = writer.generatePdf(report)
                 if (bytes != null && bytes.isNotEmpty()) {
-                    val fileName = "raqeem_report_${report.generatedDateFormatted}.pdf"
+                    val scope = ExportNamer.scopeForPeriod(_uiState.value.selectedReportPeriod)
+                    val fileName = ExportNamer.generateFileName(
+                        type = "report",
+                        scope = scope,
+                        extension = "pdf"
+                    )
                     val path = writeExportFileToCache(fileName, bytes)
                     _uiState.update {
                         it.copy(
@@ -961,6 +973,40 @@ class ExpenseViewModel(
                     )
                 }
                 _effects.emit(ExpenseEffect.ShowMessage("تعذر إنشاء ملف PDF", MessageKind.ERROR))
+            }
+        }
+    }
+
+    private fun exportReceivablesExcel() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isExportingReport = true, exportErrorMessage = null) }
+            try {
+                val bytes = XlsxWriter.writeReceivablesWorkbook(_uiState.value.recentExpenses)
+                val fileName = ExportNamer.generateFileName(
+                    type = "receivables",
+                    scope = "ledger",
+                    extension = "xlsx"
+                )
+                val path = writeExportFileToCache(fileName, bytes)
+                _uiState.update {
+                    it.copy(
+                        isExportingReport = false,
+                        exportSuccessPath = path,
+                        exportSuccessName = fileName,
+                        exportSuccessSize = bytes.size.toLong(),
+                        exportMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                }
+                _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+                _effects.emit(ExpenseEffect.ShowMessage("تم تجهيز دفتر المستحقات بصيغة Excel بنجاح", MessageKind.SUCCESS))
+            } catch (_: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isExportingReport = false,
+                        exportErrorMessage = "تعذر إنشاء دفتر المستحقات"
+                    )
+                }
+                _effects.emit(ExpenseEffect.ShowMessage("تعذر تصدير دفتر المستحقات", MessageKind.ERROR))
             }
         }
     }

@@ -140,6 +140,7 @@ sealed interface ExpenseIntent {
     data class SelectReportPeriod(val period: ReportPeriod) : ExpenseIntent
     data object ExportExcelReport : ExpenseIntent
     data object ExportPdfReport : ExpenseIntent
+    data object ExportReceivablesExcel : ExpenseIntent
     data object DismissExportResult : ExpenseIntent
     data object OpenManualSheet : ExpenseIntent
     data object DismissReviewSheet : ExpenseIntent

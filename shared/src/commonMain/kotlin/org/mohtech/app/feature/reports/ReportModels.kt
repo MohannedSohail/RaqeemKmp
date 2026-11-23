@@ -72,7 +72,7 @@ object ReportBuilder {
         val totalsByCurrency = mutableMapOf<String, Double>()
         for (item in filteredExpenses) {
             val curr = item.currency.ifBlank { "₪" }
-            totalsByCurrency[curr] = (totalsByCurrency[curr] ?: 0.0) + item.amount
+            totalsByCurrency[curr] = (totalsByCurrency[curr] ?: 0.0) + item.effectiveAmount
         }
 
         // Category breakdown per currency
@@ -82,7 +82,7 @@ object ReportBuilder {
             val list = mutableListOf<CategorySummary>()
             ExpenseCategory.entries.forEach { cat ->
                 val catItems = currencyItems.filter { it.category == cat }
-                val catSum = catItems.sumOf { it.amount }
+                val catSum = catItems.sumOf { it.effectiveAmount }
                 if (catSum > 0.0 || catItems.isNotEmpty()) {
                     val pct = if (total > 0.0) (catSum / total).toFloat() else 0.0f
                     list.add(
@@ -102,7 +102,7 @@ object ReportBuilder {
         val dailyTotals = mutableMapOf<LocalDate, Double>()
         for (item in filteredExpenses) {
             val itemDate = Instant.fromEpochMilliseconds(item.timestamp).toLocalDateTime(timeZone).date
-            dailyTotals[itemDate] = (dailyTotals[itemDate] ?: 0.0) + item.amount
+            dailyTotals[itemDate] = (dailyTotals[itemDate] ?: 0.0) + item.effectiveAmount
         }
 
         val dateStr = "${today.year}-${today.monthNumber.toString().padStart(2, '0')}-${today.dayOfMonth.toString().padStart(2, '0')}"
