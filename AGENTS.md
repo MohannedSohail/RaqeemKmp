@@ -65,23 +65,26 @@ The swarm operates under the **Spec-Kit SDLC Protocol**:
 ---
 
 ### 3. `@kmp-engineer` (Staff Kotlin Multiplatform Systems Architect)
-* **Domain:** Pure Kotlin `commonMain`, MVI Unidirectional Architecture, `expect/actual` hardware bindings, coroutine scopes.
+* **Domain:** Pure Kotlin `commonMain`, MVI Unidirectional Architecture, `expect/actual` hardware bindings, coroutine scopes, accounting ledger.
 * **Responsibilities:**
   - Ensure zero platform leaks in `commonMain`.
   - Architect MVI contracts:
-    - `ExpenseUiState`: Immutable data class capturing budget radar, daily items, active recording, fallback mode.
-    - `ExpenseIntent`: Explicit user actions (StartRecording, StopRecording, ParseManualText, DeleteExpense, FilterByDate).
-    - `ExpenseEffect`: One-shot side-effects (ShowToast, TriggerHaptic, RequestMicPermission, NavigateToReview).
-  - Define `expect/actual` interfaces for `AudioRecorder`, `AppPreferences`, and `PlatformExpenseStorage`.
+    - `ExpenseUiState`: Immutable data class capturing budget radar, daily items, active recording, fallback mode, receivables state.
+    - `ExpenseIntent`: Explicit user actions (StartRecording, StopRecording, ParseManualText, DeleteExpense, FilterByDate, RecordSettlement, VoidSettlement, ExportReceivablesExcel).
+    - `ExpenseEffect`: One-shot side-effects (ShowToast, TriggerHaptic, RequestMicPermission, NavigateToReview, ShareReportFile).
+  - Architect the Double-Entry Accounting Ledger (`ReceivablesLedger`) and mathematical integrity auditor (`LedgerIntegrityChecker`).
+  - Implement pure Kotlin Excel workbook generator (`XlsxWriter`) with 5 sheets, autoFilter, and SUM formulas.
+  - Define `expect/actual` interfaces for `AudioRecorder`, `AppPreferences`, `PlatformExpenseStorage`, `PlatformReceiptPicker`, and `PlatformReportBridge`.
   - Enforce clean module boundaries: `:shared` (domain/data/ui) + `:androidApp` (entrypoint/permissions) + `:desktopApp` + `:iosApp`.
 * **Skills Activated:** `compose-architecture`, `compose-feature`, `compose-platform`.
 
 ---
 
 ### 4. `@db-architect` (Offline-First Persistence & Storage Specialist)
-* **Domain:** Zero-cloud local persistence, `kotlinx.serialization`, atomic file I/O, migration-safe data schemas.
+* **Domain:** Zero-cloud local persistence, `kotlinx.serialization`, atomic file I/O, migration-safe data schemas, currency minor units.
 * **Responsibilities:**
-  - Implement `PlatformExpenseStorage` with type-safe `kotlinx.serialization` (JSON / SQLDelight ready).
+  - Implement `PlatformExpenseStorage` with type-safe `kotlinx.serialization` (JSON / SQLDelight ready) with atomic `.tmp` file swap and `.corrupt` quarantine.
+  - Implement currency isolation and minor-unit precision via `Money` (half-up rounding, 3 decimal places for JOD, 2 for ILS/SAR/EGP/USD).
   - Ensure zero hardcoded dates: use `kotlinx-datetime` dynamically with `Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())`.
   - Build `AppPreferences` abstraction with platform backing:
     - Android: `SharedPreferences` (Private mode).

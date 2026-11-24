@@ -355,75 +355,115 @@ expect fun writeExportFileToCache(fileName: String, bytes: ByteArray): String
 ### 5.6 عقود دفتر المستحقات والمحاسبة المالية (Accounting & Receivables Contracts)
 ```kotlin
 @Serializable
-data class Allocation(
-    val partyName: String,
-    val amount: Double,
-    val note: String = ""
-)
+enum class DebtStatus {
+    OPEN,
+    PARTIAL,
+    SETTLED
+}
 
 @Serializable
 data class Settlement(
     val id: String,
-    val refNo: String,
-    val partyName: String,
+    val refNo: Long = 0L,
+    val allocationId: String = "",
     val amount: Double,
-    val settledAt: Instant,
-    val recordedAt: Instant,
+    val settledAt: Long,
+    val recordedAt: Long,
     val note: String = "",
-    val isVoided: Boolean = false,
-    val voidReason: String? = null,
-    val voidedAt: Instant? = null
+    val voidedAt: Long? = null
 )
 
-sealed interface DebtStatus {
-    object Settled : DebtStatus
-    data class Pending(val remaining: Double, val currency: String) : DebtStatus
-}
+@Serializable
+data class Allocation(
+    val id: String,
+    val party: Payer,
+    val amount: Double,
+    val refNo: Long = 0L,
+    val settlements: List<Settlement> = emptyList(),
+    val note: String = ""
+)
+
+@Serializable
+data class Money(
+    val amountMinor: Long,
+    val currency: String
+) : Comparable<Money>
 
 object ReceivablesLedger {
-    fun computeAllocation(expenses: List<ExpenseItem>, settlements: List<Settlement>): LedgerState
-    fun getPartySummaries(expenses: List<ExpenseItem>, settlements: List<Settlement>): List<PartySummary>
-    fun getPartySummary(partyName: String, expenses: List<ExpenseItem>, settlements: List<Settlement>): PartySummary?
-    fun getTotalRemaining(expenses: List<ExpenseItem>, settlements: List<Settlement>): Double
-    fun recordSettlement(current: List<Settlement>, newSettlement: Settlement): List<Settlement>
-    fun voidSettlement(current: List<Settlement>, settlementId: String, reason: String, voidedAt: Instant): List<Settlement>
+    fun computeAllocation(allocation: Allocation, currency: String, ...): AllocationComputation
+    fun getAllocationComputations(expenses: List<ExpenseItem>): List<AllocationComputation>
+    fun getPartySummaries(expenses: List<ExpenseItem>): List<PartyBalanceSummary>
+    fun getPartySummary(partyId: String, currency: String, expenses: List<ExpenseItem>): PartyBalanceSummary?
+    fun getTotalRemaining(expenses: List<ExpenseItem>, currency: String): Double
+    fun getTotalSettled(expenses: List<ExpenseItem>, currency: String): Double
+    fun recordSettlement(expense: ExpenseItem, allocationId: String, amount: Double, settledAt: Long, note: String, ...): ExpenseItem
+    fun voidSettlement(expense: ExpenseItem, settlementId: String, voidedAt: Long): ExpenseItem
+    fun renameParty(expenses: List<ExpenseItem>, oldName: String, newName: String): List<ExpenseItem>
+    fun mergeParties(expenses: List<ExpenseItem>, sourceName: String, targetName: String): List<ExpenseItem>
+}
+
+object LedgerIntegrityChecker {
+    fun verify(expenses: List<ExpenseItem>, nowMillis: Long): IntegrityCheckResult
 }
 
 object ExportNamer {
-    fun generateFileName(type: String, scope: String, extension: String, existingFileNames: Set<String>): String
-    fun sanitizeScope(scope: String): String
+    fun generateFileName(type: String, scope: String, extension: String, nowMillis: Long, timeZone: TimeZone, exists: (String) -> Boolean): String
+    fun sanitizeAscii(input: String): String
+    fun scopeForPeriod(period: ReportPeriod): String
 }
 ```
 
 ### 5.7 سيناريوهات القبول بصيغة Gherkin (v3 Accounting & Receivables Scenarios)
+
+#### Scenario: تقسيم فاتورة 100 شيكل إلى 30 إلي و40 للبيت و30 لأخوي
+```gherkin
+Given نطق المستخدم عبارة "مية شيكل ثلاثين إلي وأربعين للبيت وثلاثين لأخوي"
+When يقوم المحلل المحلي باستخراج البيانات
+Then يتم إنشاء مصروف بقيمة إجمالية 100 شيكل
+And يُحدد نصيب المستخدم myShare بقيمة 30 شيكل
+And يُنشأ تخصيصان: "البيت" بقيمة 40 شيكل، و"أخوي" بقيمة 30 شيكل
+And يتطابق مجموع myShare مع التخصيصات تماماً (30 + 40 + 30 = 100)
+```
 
 #### Scenario: استثناء حصص الآخرين من إجمالي المصروف الشخصي والميزانية
 ```gherkin
 Given المستخدم قام بتسجيل مصروف بمبلغ 100 شيكل
 And حدد أن نصيبه الشخصي myShare هو 30 شيكل و70 شيكل تخصيص لطرف آخر
 When يتم حساب إجمالي المصاريف اليومية وميزانية الأسبوع
-Then يجب أن يُحتسب مبلغ 30 شيكل فقط ضمن النفقات
+Then يجب أن يُحتسب مبلغ 30 شيكل فقط ضمن النفقات (effectiveAmount)
 And يظهر مبلغ 70 شيكل في دفتر المستحقات كدين قيد التحصيل
 ```
 
-#### Scenario: سلامة دفتر المستحقات والتسديد وإلغاء التسديد دون حذف صامت
+#### Scenario: تسجيل تسديد جزئي بتاريخ محدد وإلغاء التسديد دون حذف صامت
 ```gherkin
 Given وجود مستحقات بقيمة 100 شيكل على طرف "محمد"
-When يقوم المستخدم بتسجيل تسديد جزئي بقيمة 40 شيكل
-Then يصبح الرصيد المتبقي على محمد 60 شيكل
-When يقوم المستخدم بإلغاء التسديد (Void) بسبب خطأ في الإدخال
-Then تُسجل حالة التسديد كـ isVoided = true
+When يقوم المستخدم بتسجيل تسديد جزئي بقيمة 40 شيكل بتاريخ الأربعاء 2026-11-19
+Then تصبح حالة الدين مسدد جزئياً (PARTIAL)
+And يصبح الرصيد المتبقي على محمد 60 شيكل مع حفظ وقت التسجيل المنفصل
+When يقوم المستخدم بإلغاء التسديد (Void)
+Then تُسجل حالة التسديد بملء حقل voidedAt بتاريخ الإلغاء
 And يعود الرصيد المتبقي على محمد إلى 100 شيكل
-And يبقى سجل التسديد محفوظاً في دفتر التدقيق ولا يُمحى من الذاكرة
+And يبقى سجل التسديد محفوظاً في دفتر التدقيق ولا يُمحى
 ```
 
-#### Scenario: توليد كشف حساب تفصيلي وأعمار الديون وتصدير مصنف إكسل بخمس صفحات
+#### Scenario: تصدير تقريرين متتاليين في نفس الثانية باسمين مستقلين خاليين من التصادم
 ```gherkin
-Given وجود مصاريف مشتركة وتسديدات لعدة أطراف
-When يطلب المستخدم تصدير كشف الحسابات
-Then يتم إنتاج مصنف XLSX يحتوي على 5 صفحات (الملخص، المستحقات، التسديدات، كشوف الحساب، الأعمار)
-And يتطابق مجموع حركات المدينين مع إجمالي المتبقي وفق فحص المطابقة المحاسبي
-And يُسمى الملف بصيغة موحدة خالية من التصادم مثل raqeem_receivables_statement_20261123-182500.xlsx
+Given المستخدم يطلب تصدير تقرير المستحقات بصيغة XLSX
+And يطلب مباشرة تصدير تقرير ثانٍ في نفس الثانية
+When يتم توليد اسم الملف عبر ExportNamer
+Then يُنشأ الملف الأول باسم raqeem_receivables_all_20261124-120000.xlsx
+And يُنشأ الملف الثاني برقم تسلسلي مانع للتصادم raqeem_receivables_all_20261124-120000-2.xlsx
+And لا يكتب أحدهما فوق الآخر في مجلد الكاش
+And يعرض التطبيق الاسم الفعلي لكل ملف
+```
+
+#### Scenario: فشل محرك الصوت أو غياب النموذج يفتح شيت الإدخال اليدوي تلقائياً
+```gherkin
+Given تعذر تحميل نموذج Whisper أو انقطاع التسجيل الصوتي بسبب خطأ
+When يكتمل مسار المعالجة
+Then يُضبط showFallbackManualSheet = true فورياً
+And لا يُترك المستخدم أمام شاشة معلقة أو فارغة
+And تظهر رسالة عربية هادئة مع فتح حقول الإدخال اليدوي والبطاقات الجاهزة
 ```
 
 ```

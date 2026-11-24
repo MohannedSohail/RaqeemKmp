@@ -372,5 +372,35 @@ class DialectParserTest {
         val item = result.items.first()
         assertEquals(20.0, item.amount)
         assertEquals(ExpenseCategory.GROCERIES, item.category)
+        assertTrue(item.title.contains("تفاح"), "Dynamic title must retain item name 'تفاح'")
+    }
+
+    // 31. Dynamic Title Extraction for novel item/merchant
+    @Test
+    fun testDynamicTitleExtractionForNovelItem() {
+        val result = parser.parseSpokenText(
+            "اشتريت كتب ب 50 شيكل",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        val item = result.items.first()
+        assertEquals(50.0, item.amount)
+        assertEquals("كتب", item.title, "Title should be dynamically derived as 'كتب'")
+    }
+
+    // 32. Multi-item phrase with word amounts
+    @Test
+    fun testMultiItemPhraseWithWordAmounts() {
+        val result = parser.parseSpokenText(
+            "بنزين بأربعين وقهوة باثني عشر",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        assertEquals(2, result.items.size)
+        assertEquals(52.0, result.totalBatchAmount)
+        assertEquals(40.0, result.items[0].amount)
+        assertEquals(ExpenseCategory.TRANSPORT, result.items[0].category)
+        assertEquals(12.0, result.items[1].amount)
+        assertEquals(ExpenseCategory.DINING, result.items[1].category)
     }
 }

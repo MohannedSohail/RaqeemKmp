@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.time.Clock
 import org.mohtech.app.ai.nlp.LocalDialectExpenseParser
+import org.mohtech.app.ai.nlp.TranscriptNormalizer
 import org.mohtech.app.core.haptics.HapticFeedbackType
 import org.mohtech.app.core.haptics.LocalRaqeemHaptics
 import org.mohtech.app.core.theme.RaqeemColors
@@ -262,10 +263,11 @@ fun ExpenseReviewSheet(
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable {
                                         haptics.trigger(HapticFeedbackType.LightTick)
-                                        // Re-parse with LocalDialectExpenseParser
+                                        // Re-parse with TranscriptNormalizer and LocalDialectExpenseParser
                                         val parser = LocalDialectExpenseParser()
                                         val currency = drafts.firstOrNull()?.currency ?: "₪"
-                                        val reBatch = parser.parseSpokenText(rawSpokenText, currency)
+                                        val normalized = TranscriptNormalizer.normalize(rawSpokenText)
+                                        val reBatch = parser.parseSpokenText(normalized.normalizedText, currency)
 
                                         drafts.clear()
                                         reBatch.items.forEach { item ->

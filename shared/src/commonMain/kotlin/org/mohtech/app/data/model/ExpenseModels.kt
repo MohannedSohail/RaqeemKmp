@@ -99,7 +99,6 @@ data class ExpenseItem(
     val refNo: Long = 0L,
     val deletedAt: Long? = null
 ) {
-    @Transient
     val effectiveAmount: Double
         get() = myShare ?: amount
 }

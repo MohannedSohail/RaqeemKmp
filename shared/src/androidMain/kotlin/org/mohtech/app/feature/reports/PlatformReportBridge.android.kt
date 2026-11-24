@@ -21,11 +21,12 @@ actual fun writeExportFileToCache(fileName: String, bytes: ByteArray): String {
         File(System.getProperty("java.io.tmpdir") ?: ".", "reports").apply { if (!exists()) mkdirs() }
     }
 
-    // Clean up temporary export files older than 24 hours
+    // Clean up temporary export files older than 7 days (Axis C4 requirement)
     try {
         val now = System.currentTimeMillis()
+        val sevenDaysMillis = 7L * 24L * 60L * 60L * 1000L
         reportsDir.listFiles()?.forEach { file ->
-            if (file.name.startsWith("raqeem_report_") && (now - file.lastModified() > 86_400_000L)) {
+            if (file.name.startsWith("raqeem_") && (now - file.lastModified() > sevenDaysMillis)) {
                 file.delete()
             }
         }
@@ -33,9 +34,21 @@ actual fun writeExportFileToCache(fileName: String, bytes: ByteArray): String {
         // Ignore cache cleanup failures
     }
 
-    val reportFile = File(reportsDir, fileName)
-    reportFile.writeBytes(bytes)
-    return reportFile.absolutePath
+    // Ensure collision-free unique file path in cache (never overwrite an existing report)
+    var targetFile = File(reportsDir, fileName)
+    if (targetFile.exists()) {
+        val dotIndex = fileName.lastIndexOf('.')
+        val baseName = if (dotIndex > 0) fileName.substring(0, dotIndex) else fileName
+        val ext = if (dotIndex > 0) fileName.substring(dotIndex) else ""
+        var counter = 2
+        while (targetFile.exists()) {
+            targetFile = File(reportsDir, "$baseName-$counter$ext")
+            counter++
+        }
+    }
+
+    targetFile.writeBytes(bytes)
+    return targetFile.absolutePath
 }
 
 

@@ -903,11 +903,12 @@ class ExpenseViewModel(
                     extension = "xlsx"
                 )
                 val path = writeExportFileToCache(fileName, bytes)
+                val actualFileName = path.substringAfterLast('/').substringAfterLast('\\')
                 _uiState.update {
                     it.copy(
                         isExportingReport = false,
                         exportSuccessPath = path,
-                        exportSuccessName = fileName,
+                        exportSuccessName = actualFileName,
                         exportSuccessSize = bytes.size.toLong(),
                         exportMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
@@ -945,11 +946,12 @@ class ExpenseViewModel(
                         extension = "pdf"
                     )
                     val path = writeExportFileToCache(fileName, bytes)
+                    val actualFileName = path.substringAfterLast('/').substringAfterLast('\\')
                     _uiState.update {
                         it.copy(
                             isExportingReport = false,
                             exportSuccessPath = path,
-                            exportSuccessName = fileName,
+                            exportSuccessName = actualFileName,
                             exportSuccessSize = bytes.size.toLong(),
                             exportMimeType = "application/pdf"
                         )
@@ -988,11 +990,12 @@ class ExpenseViewModel(
                     extension = "xlsx"
                 )
                 val path = writeExportFileToCache(fileName, bytes)
+                val actualFileName = path.substringAfterLast('/').substringAfterLast('\\')
                 _uiState.update {
                     it.copy(
                         isExportingReport = false,
                         exportSuccessPath = path,
-                        exportSuccessName = fileName,
+                        exportSuccessName = actualFileName,
                         exportSuccessSize = bytes.size.toLong(),
                         exportMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )

@@ -298,12 +298,13 @@ class RealWorldScenarioTest {
         val repository = LocalExpenseRepository(storage, preferences)
         val parser = LocalDialectExpenseParser()
 
+        val baseTs = 1731168000000L
         // 1. Process Levantine expense
-        val levantine = parser.parseSpokenText("بنزين ب 50 شيكل", defaultCurrency = "₪")
+        val levantine = parser.parseSpokenText("بنزين ب 50 شيكل", defaultCurrency = "₪", currentTimestamp = baseTs + 3000L)
         // 2. Process Egyptian expense with compound word
-        val egyptian = parser.parseSpokenText("دفعت مية وخمسين جنيه في السوبرماركت", defaultCurrency = "ج.م")
+        val egyptian = parser.parseSpokenText("دفعت مية وخمسين جنيه في السوبرماركت", defaultCurrency = "ج.م", currentTimestamp = baseTs + 2000L)
         // 3. Process Gulf expense with split
-        val gulf = parser.parseSpokenText("عشاء بستين ريال بيني وبين أحمد", defaultCurrency = "ر.س")
+        val gulf = parser.parseSpokenText("عشاء بستين ريال بيني وبين أحمد", defaultCurrency = "ر.س", currentTimestamp = baseTs + 1000L)
 
         val allItems = levantine.items + egyptian.items + gulf.items
         assertEquals(3, allItems.size)

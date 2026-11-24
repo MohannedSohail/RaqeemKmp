@@ -28,10 +28,12 @@ class LocalDialectExpenseParser {
     }
 
     private val numberWordTokens = setOf(
-        "نص", "ربع", "واحد", "واحدة", "اثنين", "اتنين", "ثلاث", "تلات", "ثلاثة", "تلاتة",
+        "نص", "ربع", "واحد", "واحدة", "اثنين", "اتنين", "اثنان", "اثني", "اثنا", "إثنان", "إثني", "إثنا", "اتنان",
+        "ثلاث", "تلات", "ثلاثة", "تلاتة",
         "أربع", "اربع", "أربعة", "اربعة", "خمس", "خمسة",
         "ست", "ستة", "سبع", "سبعة", "ثمان", "تمان", "ثمانية", "تمانية", "تسع", "تسعة", "عشر", "عشرة",
-        "عشرين", "ثلاثين", "تلاتين", "أربعين", "اربعين", "خمسين", "ستين", "سبعين", "ثمانين", "تمانين", "تسعين",
+        "عشرين", "عشرون", "ثلاثين", "ثلاثون", "تلاتين", "أربعين", "أربعون", "اربعين", "اربعون",
+        "خمسين", "خمسون", "ستين", "ستون", "سبعين", "سبعون", "ثمانين", "ثمانون", "تمانين", "تمانون", "تسعين", "تسعون",
         "مية", "مائة", "مئة", "ميه", "ميتين", "مائتين", "مئتين", "ثلاثمية", "تلاتمية", "أربعمية", "اربعمية",
         "خمسمية", "خمسمائة", "خمسمئة", "ستمية", "سبعمية", "ثمانمية", "تمانمية", "تسعمية",
         "ألف", "الف", "ألفين", "الفين", "آلاف", "الاف"
@@ -237,6 +239,60 @@ class LocalDialectExpenseParser {
         )
     }
 
+    private fun isNumberToken(token: String): Boolean {
+        val clean = token.removePrefix("ب").removePrefix("و").trim()
+        return clean.all { it.isDigit() } || numberWordTokens.contains(clean)
+    }
+
+    private fun splitMultiItemSegments(normalizedText: String): List<String> {
+        val tokens = normalizedText.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (tokens.size < 4) return emptyList()
+
+        val splitIndices = mutableListOf<Int>()
+        for (i in 1 until tokens.size) {
+            val token = tokens[i]
+            val prevToken = tokens[i - 1]
+
+            val isAndWord = token == "و" && i + 1 < tokens.size
+            val isAndPrefix = token.startsWith("و") && token.length > 1
+
+            if (isAndWord) {
+                val nextToken = tokens[i + 1]
+                val isCompoundNumber = isNumberToken(prevToken) && isNumberToken(nextToken)
+                if (!isCompoundNumber) {
+                    splitIndices.add(i)
+                }
+            } else if (isAndPrefix) {
+                val afterW = token.substring(1)
+                val isCompoundNumber = isNumberToken(prevToken) && isNumberToken(afterW)
+                if (!isCompoundNumber) {
+                    val remaining = tokens.subList(i, tokens.size).joinToString(" ").replaceFirst(Regex("^و"), "")
+                    if (extractAmount(remaining) > 0.0) {
+                        splitIndices.add(i)
+                    }
+                }
+            }
+        }
+
+        if (splitIndices.isEmpty()) return emptyList()
+
+        val segments = mutableListOf<String>()
+        var start = 0
+        for (splitIdx in splitIndices) {
+            val seg = tokens.subList(start, splitIdx).joinToString(" ").trim()
+            if (seg.isNotBlank() && extractAmount(seg) > 0.0) {
+                segments.add(seg)
+                start = if (tokens[splitIdx] == "و") splitIdx + 1 else splitIdx
+            }
+        }
+        val lastSeg = tokens.subList(start, tokens.size).joinToString(" ").replaceFirst(Regex("^و"), "").trim()
+        if (lastSeg.isNotBlank() && extractAmount(lastSeg) > 0.0) {
+            segments.add(lastSeg)
+        }
+
+        return if (segments.size >= 2) segments else emptyList()
+    }
+
     private fun tryParseMultiItems(
         spokenText: String,
         normalizedText: String,
@@ -251,8 +307,7 @@ class LocalDialectExpenseParser {
             return null
         }
 
-        // Split on conjunction 'و' when followed by a number or an item with amount
-        val rawSegments = normalizedText.split(Regex("""(?<=[^\s])\s+و(?=\s*[0-9]+|\s*[^\s]+\s+ب\s*[0-9]+)"""))
+        val rawSegments = splitMultiItemSegments(normalizedText)
         if (rawSegments.size < 2) {
             return null
         }
@@ -571,59 +626,63 @@ class LocalDialectExpenseParser {
     }
 
     private fun extractTitle(spokenText: String, category: ExpenseCategory): String {
+        val trimmed = spokenText.trim()
+
+        // 1. Check known specific multi-word merchant / item patterns first (helper list)
+        val knownPhrases = listOf(
+            "تصليح كوشوك السيارة", "سوبرماركت برافو", "صيدلية النهدي", "كارفور", "برافو",
+            "نص كيلو جبنة", "ربع كيلو بن", "قهوة وحلا", "إيجار البيت", "ايجار البيت",
+            "فاتورة الكهرباء", "دواء من الصيدلية", "السوبرماركت", "سوبرماركت"
+        )
+        for (phrase in knownPhrases) {
+            if (trimmed.contains(phrase)) {
+                return phrase
+            }
+        }
+
+        // 2. Dynamically derive from remaining words after removing amounts, currency, prepositions, payment triggers
+        var text = ArabicNumberNormalizer.convertIndicDigitsToAscii(trimmed)
+
+        // Remove numbers and digits
+        text = text.replace(Regex("""[0-9]+(?:\.[0-9]+)?"""), " ")
+
+        val currencies = setOf("شيكل", "شواكل", "ريال", "ريالات", "جنيه", "جنيهات", "دولار", "دينار", "ILS", "SAR", "EGP", "USD", "₪", "$")
+        val paymentTriggers = setOf(
+            "دفعت", "دفع", "دفعه", "دفعها", "اشتريت", "شريت", "سددت", "سدد", "سددها",
+            "حساب", "بيني", "وبين", "قسمة", "علينا", "النص", "بالنص", "لكل", "واحد",
+            "نصيبي", "حصتي", "والباقي", "الباقي"
+        )
+        val prepositions = setOf("في", "من", "عن", "على", "إلى", "الي", "لي", "إلي", "مع", "ب", "و", "ل")
+
+        // Token-based filtering: perfectly handles Arabic Unicode characters
+        val tokens = text.replace(Regex("""[«»"'\.,:;!؟]"""), " ")
+            .split(Regex("""\s+"""))
+            .filter { it.isNotBlank() }
+
+        val cleanTokens = tokens.filter { token ->
+            val clean = token.removePrefix("ب").removePrefix("و").removePrefix("ل")
+            !currencies.contains(token) &&
+            !currencies.contains(clean) &&
+            !paymentTriggers.contains(token) &&
+            !prepositions.contains(token) &&
+            !numberWordTokens.contains(token) &&
+            !numberWordTokens.contains(clean)
+        }
+
+        val cleanCandidate = cleanTokens.joinToString(" ").trim()
+
+        if (cleanCandidate.isNotBlank() && cleanCandidate.length >= 2) {
+            return cleanCandidate
+        }
+
+        // 3. Category Fallback Default
         return when (category) {
-            ExpenseCategory.GROCERIES -> {
-                when {
-                    spokenText.contains("سوبرماركت") -> "سوبرماركت"
-                    spokenText.contains("نص كيلو جبنة") -> "نص كيلو جبنة"
-                    spokenText.contains("خضار") -> "خضار"
-                    spokenText.contains("حليب") -> "حليب وبقالة"
-                    else -> "مشتريات بقالة"
-                }
-            }
-            ExpenseCategory.DINING -> {
-                when {
-                    spokenText.contains("قهوة وحلا") -> "قهوة وحلا"
-                    spokenText.contains("قهوة") -> "قهوة"
-                    spokenText.contains("عشاء") -> "عشاء"
-                    spokenText.contains("غداء") -> "غداء"
-                    spokenText.contains("فطور") -> "فطور"
-                    spokenText.contains("شاورما") -> "شاورما"
-                    spokenText.contains("ربع كيلو بن") -> "ربع كيلو بن"
-                    else -> "مطعم ومقهى"
-                }
-            }
-            ExpenseCategory.TRANSPORT -> {
-                when {
-                    spokenText.contains("تصليح كوشوك السيارة") -> "تصليح كوشوك السيارة"
-                    spokenText.contains("بنزين") -> "بنزين"
-                    spokenText.contains("تكسي") -> "تكسي"
-                    spokenText.contains("أوبر") -> "أوبر"
-                    else -> "مواصلات ووقود"
-                }
-            }
-            ExpenseCategory.BILLS -> {
-                when {
-                    spokenText.contains("فاتورة الكهرباء") -> "فاتورة الكهرباء"
-                    spokenText.contains("إيجار البيت") || spokenText.contains("ايجار البيت") -> "إيجار البيت"
-                    spokenText.contains("إنترنت") -> "إنترنت"
-                    else -> "فواتير والتزامات"
-                }
-            }
-            ExpenseCategory.HEALTH -> {
-                when {
-                    spokenText.contains("دواء من الصيدلية") || spokenText.contains("دواء") -> "دواء وصيدلية"
-                    spokenText.contains("صيدلية") -> "صيدلية"
-                    else -> "صحة وعلاج"
-                }
-            }
-            ExpenseCategory.GENERAL -> {
-                when {
-                    spokenText.contains("هدية") -> "هدية"
-                    spokenText.contains("للبيت") || spokenText.contains("نصيبي") || spokenText.contains("إلي") -> "مصروف مشترك"
-                    else -> "مصروف عام"
-                }
-            }
+            ExpenseCategory.GROCERIES -> "سوبرماركت"
+            ExpenseCategory.DINING -> "مطعم ومقهى"
+            ExpenseCategory.TRANSPORT -> "بنزين"
+            ExpenseCategory.BILLS -> "فواتير والتزامات"
+            ExpenseCategory.HEALTH -> "صحة وعلاج"
+            ExpenseCategory.GENERAL -> "مصروف عام"
         }
     }
 }
