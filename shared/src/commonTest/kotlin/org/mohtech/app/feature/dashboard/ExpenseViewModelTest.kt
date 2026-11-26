@@ -22,6 +22,7 @@ import org.mohtech.app.data.model.ProofType
 import org.mohtech.app.data.repository.LocalExpenseRepository
 import org.mohtech.app.data.storage.AppPreferences
 import org.mohtech.app.data.storage.PlatformExpenseStorage
+import org.mohtech.app.feature.dashboard.ui.parseLocalizedAmount
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -817,6 +818,237 @@ class ExpenseViewModelTest {
         val state = whisperVm.uiState.value
         assertFalse(state.showPermissionRationaleDialog, "showPermissionRationaleDialog must be dismissed")
         assertFalse(state.showPermissionRationaleSheet, "showPermissionRationaleSheet must be dismissed")
+    }
+
+    @Test
+    fun testWhisperVadSilenceShowsFallbackManualSheetWithoutHanging() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber()
+        // Pure zero silence PCM (2 seconds)
+        val silencePcm = ShortArray(32000) { 0 }
+        val fakeRecorder = FakeAudioRecorder(recordedPcm = silencePcm)
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.StopRecording)
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        assertFalse(state.isRecording, "Recording must be stopped")
+        assertEquals(ProcessingStage.IDLE, state.processingStage, "Processing stage must be IDLE")
+        assertNull(state.reviewSheetPendingBatch, "Pending batch must be null on pure silence")
+        assertTrue(state.showFallbackManualSheet, "showFallbackManualSheet must open immediately on VAD silence")
+        assertNotNull(state.userErrorMessage, "userErrorMessage must indicate no speech detected")
+    }
+
+    @Test
+    fun testWhisperTranscriptionTimeoutTransitionsToFallbackSheet() = runTest(testDispatcher) {
+        // Transcriber delay exceeding dynamic timeout (e.g. 35 seconds)
+        val fakeTranscriber = FakeTranscriber(delayMs = 35_000L)
+        val fakeRecorder = FakeAudioRecorder()
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        whisperVm.handleIntent(ExpenseIntent.StopRecording)
+        // Advance virtual time by 31 seconds to trigger dynamic timeout
+        testScheduler.advanceTimeBy(31_000L)
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        assertFalse(state.isRecording, "Recording must be stopped")
+        assertEquals(ProcessingStage.IDLE, state.processingStage, "Processing stage must reset to IDLE on timeout")
+        assertNull(state.reviewSheetPendingBatch, "Pending batch must be null on timeout")
+        assertTrue(state.showFallbackManualSheet, "showFallbackManualSheet must open when transcription times out")
+        assertNotNull(state.userErrorMessage, "userErrorMessage must be populated on timeout")
+    }
+
+    @Test
+    fun testFallbackManualTextParseTransitionsDirectlyToReviewSheet() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber()
+        val fakeRecorder = FakeAudioRecorder(recordedPcm = ShortArray(16000) { 0 })
+        val whisperVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        // 1. Simulate silence triggering fallback manual sheet
+        whisperVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+        whisperVm.handleIntent(ExpenseIntent.StopRecording)
+        advanceUntilIdle()
+
+        assertTrue(whisperVm.uiState.value.showFallbackManualSheet, "Fallback sheet must be visible")
+        assertNull(whisperVm.uiState.value.reviewSheetPendingBatch)
+
+        // 2. User submits manual text from the fallback sheet
+        whisperVm.handleIntent(ExpenseIntent.ParseManualSpeechText("عشاء ب 80 شيكل"))
+        advanceUntilIdle()
+
+        val state = whisperVm.uiState.value
+        assertFalse(state.showFallbackManualSheet, "Fallback sheet must close when manual text is parsed")
+        assertEquals(ProcessingStage.IDLE, state.processingStage, "Processing stage must be IDLE")
+        assertNotNull(state.reviewSheetPendingBatch, "ExpenseReviewSheet pending batch must be populated")
+        assertEquals(1, state.reviewSheetPendingBatch!!.items.size)
+        assertEquals(80.0, state.reviewSheetPendingBatch!!.items.first().amount)
+
+        // 3. User confirms batch from ReviewSheet
+        whisperVm.handleIntent(ExpenseIntent.ConfirmBatch(state.reviewSheetPendingBatch!!))
+        advanceUntilIdle()
+
+        assertEquals(1, whisperVm.uiState.value.recentExpenses.size, "Confirmed expense must be persisted")
+        assertEquals("عشاء", whisperVm.uiState.value.recentExpenses.first().title)
+    }
+
+    @Test
+    fun testDualBranchSpeechRecognitionFallsBackToVoiceEngineWhenWhisperNotReady() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber(isModelReadyState = false)
+        val fakeRecorder = FakeAudioRecorder()
+        val fakeEngine = FakeVoiceEngine(available = true)
+        val dualBranchVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            voiceEngine = fakeEngine,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        dualBranchVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        // Whisper was not ready, so it must fall back to voiceEngine gracefully
+        assertEquals(0, fakeRecorder.startRecordingCount, "Whisper recorder must not be started when model is not ready")
+        assertEquals(1, fakeEngine.startListeningCount, "voiceEngine must be started as dual-branch fallback")
+        assertTrue(dualBranchVm.uiState.value.isRecording, "ViewModel must indicate active recording state")
+
+        // Emit recognition result from voiceEngine
+        fakeEngine.emitResult("دفعت 40 شيكل خضار")
+        advanceUntilIdle()
+
+        val state = dualBranchVm.uiState.value
+        assertFalse(state.isRecording, "Recording state must be false after recognition")
+        assertNotNull(state.reviewSheetPendingBatch, "Review sheet pending batch must be populated from voiceEngine fallback")
+        assertEquals(1, state.reviewSheetPendingBatch!!.items.size)
+        assertEquals(40.0, state.reviewSheetPendingBatch!!.items.first().amount)
+        assertEquals(ExpenseCategory.GROCERIES, state.reviewSheetPendingBatch!!.items.first().category)
+        assertFalse(state.showFallbackManualSheet, "showFallbackManualSheet must be false when batch is ready")
+    }
+
+    @Test
+    fun testDualBranchStopRecordingStopsVoiceEngineWhenActive() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber(isModelReadyState = false)
+        val fakeRecorder = FakeAudioRecorder()
+        val fakeEngine = FakeVoiceEngine(available = true)
+        val dualBranchVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            voiceEngine = fakeEngine,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        dualBranchVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+        assertTrue(dualBranchVm.uiState.value.isRecording, "ViewModel must be recording")
+        assertEquals(1, fakeEngine.startListeningCount)
+        assertEquals(0, fakeRecorder.startRecordingCount)
+
+        // User stops recording: must stop voiceEngine, NOT fakeRecorder
+        dualBranchVm.handleIntent(ExpenseIntent.StopRecording)
+        advanceUntilIdle()
+
+        assertEquals(1, fakeEngine.stopListeningCount, "voiceEngine.stopListening must be invoked")
+        assertEquals(0, fakeRecorder.stopRecordingCount, "audioRecorder.stopRecording must NOT be invoked when voiceEngine was active")
+        assertFalse(dualBranchVm.uiState.value.isRecording, "Recording state must reset to false")
+    }
+
+    @Test
+    fun testDualBranchRecognitionTransitionsToReadyAndFinishProcessingReachesIdle() = runTest(testDispatcher) {
+        val fakeTranscriber = FakeTranscriber(isModelReadyState = false)
+        val fakeRecorder = FakeAudioRecorder()
+        val fakeEngine = FakeVoiceEngine(available = true)
+        val dualBranchVm = ExpenseViewModel(
+            repository = repository,
+            preferences = preferences,
+            parser = parser,
+            voiceEngine = fakeEngine,
+            transcriber = fakeTranscriber,
+            audioRecorder = fakeRecorder
+        )
+        advanceUntilIdle()
+
+        dualBranchVm.handleIntent(ExpenseIntent.CheckPermissionsAndStartRecord)
+        advanceUntilIdle()
+
+        fakeEngine.emitResult("فاتورة كهرباء 150 شيكل")
+        advanceUntilIdle()
+
+        val readyState = dualBranchVm.uiState.value
+        assertEquals(ProcessingStage.READY, readyState.processingStage)
+        assertNotNull(readyState.reviewSheetPendingBatch)
+        assertEquals(150.0, readyState.reviewSheetPendingBatch!!.items.first().amount)
+        assertEquals(ExpenseCategory.BILLS, readyState.reviewSheetPendingBatch!!.items.first().category)
+
+        // Overlay animation completes and signals ready finished
+        dualBranchVm.handleIntent(ExpenseIntent.FinishProcessingReady)
+        advanceUntilIdle()
+
+        val idleState = dualBranchVm.uiState.value
+        assertEquals(ProcessingStage.IDLE, idleState.processingStage, "processingStage must transition to IDLE so review sheet opens")
+        assertNotNull(idleState.reviewSheetPendingBatch)
+    }
+
+    @Test
+    fun testReviewSheetParseLocalizedArabicNumerals() {
+        assertEquals(50.0, parseLocalizedAmount("٥٠"))
+        assertEquals(12.5, parseLocalizedAmount("١٢٫٥"))
+        assertEquals(12.5, parseLocalizedAmount("١٢.٥"))
+        assertEquals(100.0, parseLocalizedAmount("100"))
+        assertEquals(0.5, parseLocalizedAmount("٠٫٥"))
+        assertNull(parseLocalizedAmount(""))
+        assertNull(parseLocalizedAmount("   "))
+    }
+
+    @Test
+    fun testOpenDraftReviewSheetInitializesEditableEmptyDraft() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.reviewSheetPendingBatch)
+
+        viewModel.handleIntent(ExpenseIntent.OpenDraftReviewSheet("ملاحظة سريعة"))
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertNotNull(state.reviewSheetPendingBatch, "reviewSheetPendingBatch must be created")
+        assertEquals(ProcessingStage.IDLE, state.processingStage)
+        assertFalse(state.showFallbackManualSheet)
+        val draftItem = state.reviewSheetPendingBatch!!.items.first()
+        assertEquals(0.0, draftItem.amount, "Initial draft amount must be 0.0")
+        assertEquals("", draftItem.title, "Initial draft title must be empty for user input")
+        assertEquals("ملاحظة سريعة", draftItem.rawSpokenText)
     }
 
     @Test

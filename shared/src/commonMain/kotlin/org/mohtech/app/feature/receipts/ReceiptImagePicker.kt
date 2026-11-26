@@ -2,7 +2,7 @@ package org.mohtech.app.feature.receipts
 
 /**
  * ReceiptPickerBridge:
- * Clean, 100% offline platform abstraction for picking receipt photo into filesDir/receipts/{expenseId}.jpg.
+ * Clean, 100% offline platform abstraction for picking a compressed receipt photo into sandbox storage.
  */
 interface ReceiptPickerBridge {
     fun launchPicker(expenseId: String, onImagePicked: (String?) -> Unit)
@@ -16,8 +16,7 @@ object PlatformReceiptPicker {
         if (bridge != null) {
             bridge.launchPicker(expenseId, onResult)
         } else {
-            onResult(null)
+            PlatformReceiptStorage.pickAndStoreCompressedReceipt(expenseId, onResult)
         }
     }
 }
-

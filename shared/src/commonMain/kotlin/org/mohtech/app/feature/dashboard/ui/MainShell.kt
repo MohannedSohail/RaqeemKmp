@@ -93,6 +93,7 @@ fun MainShell(
 
     var activeSnackbarData by remember { mutableStateOf<RaqeemSnackbarData?>(null) }
     var showBudgetEditor by rememberSaveable { mutableStateOf(false) }
+    var previewReceiptUri by remember { mutableStateOf<String?>(null) }
 
     // Intercept Back button: if on another tab, return to HomeTab first
     BackHandler(enabled = state.currentTab != MainTab.HOME) {
@@ -208,6 +209,7 @@ fun MainShell(
                     activeSnackbarData = activeSnackbarData,
                     onRequestMicPermission = onRequestMicPermission,
                     onOpenBudgetEditor = { showBudgetEditor = true },
+                    onViewReceipt = { uri -> previewReceiptUri = uri },
                     modifier = Modifier.weight(1f).fillMaxHeight()
                 )
             }
@@ -232,10 +234,16 @@ fun MainShell(
                 ExpenseReviewSheet(
                     batch = batch,
                     onConfirm = { confirmedBatch ->
-                        viewModel.handleIntent(ExpenseIntent.ConfirmBatch(confirmedBatch))
+                        viewModel.handleIntent(ExpenseIntent.ConfirmSplitBatch(confirmedBatch))
                     },
                     onDismiss = {
                         viewModel.handleIntent(ExpenseIntent.DismissReviewSheet)
+                    },
+                    onRawTextChange = { text ->
+                        viewModel.handleIntent(ExpenseIntent.UpdatePendingRawText(text))
+                    },
+                    onReparseText = { text ->
+                        viewModel.handleIntent(ExpenseIntent.ReparsePendingText(text))
                     }
                 )
             }
@@ -245,8 +253,12 @@ fun MainShell(
         if (state.showFallbackManualSheet) {
             PoliteFallbackSheet(
                 currency = state.activeCurrency,
+                errorMessage = state.userErrorMessage,
                 onParseText = { text ->
                     viewModel.handleIntent(ExpenseIntent.ParseManualSpeechText(text))
+                },
+                onOpenManualDraft = {
+                    viewModel.handleIntent(ExpenseIntent.OpenDraftReviewSheet())
                 },
                 onDismiss = {
                     viewModel.handleIntent(ExpenseIntent.DismissFallbackSheet)
@@ -288,6 +300,13 @@ fun MainShell(
                 onBack = {
                     viewModel.handleIntent(ExpenseIntent.CloseReceivables)
                 }
+            )
+        }
+
+        previewReceiptUri?.let { uri ->
+            ReceiptPreviewDialog(
+                fileUri = uri,
+                onDismiss = { previewReceiptUri = null }
             )
         }
     }
@@ -550,6 +569,7 @@ private fun MainTabContainer(
     activeSnackbarData: RaqeemSnackbarData?,
     onRequestMicPermission: (() -> Unit)?,
     onOpenBudgetEditor: () -> Unit,
+    onViewReceipt: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier) {
@@ -584,7 +604,8 @@ private fun MainTabContainer(
                         },
                         onOpenReceivables = {
                             viewModel.handleIntent(ExpenseIntent.OpenReceivables)
-                        }
+                        },
+                        onViewReceipt = onViewReceipt
                     )
                 }
                 MainTab.HISTORY -> {
@@ -607,7 +628,8 @@ private fun MainTabContainer(
                         },
                         onChangeCategory = { item, cat ->
                             viewModel.handleIntent(ExpenseIntent.ChangeCategory(item, cat))
-                        }
+                        },
+                        onViewReceipt = onViewReceipt
                     )
                 }
                 MainTab.REPORTS -> {

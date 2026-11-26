@@ -24,10 +24,13 @@ import org.mohtech.app.ai.whisper.SpeechError
 import org.mohtech.app.ai.whisper.TranscribeResult
 import org.mohtech.app.ai.whisper.WhisperModelConfig
 import org.mohtech.app.core.haptics.HapticKind
+import org.mohtech.app.data.accounting.ExpenseSplitSplitter
 import org.mohtech.app.data.accounting.ReceivablesLedger
 import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
+import org.mohtech.app.data.model.ExpenseRecordType
+import org.mohtech.app.data.model.Payer
 import org.mohtech.app.data.model.ProofType
 import org.mohtech.app.data.repository.ExpenseRepository
 import org.mohtech.app.data.storage.AppPreferences
@@ -47,6 +50,13 @@ class ExpenseViewModel(
     private val audioRecorder: RawAudioRecorder? = null
 ) : ViewModel() {
 
+    private enum class ActiveRecordingBranch {
+        NONE,
+        WHISPER,
+        VOICE_ENGINE
+    }
+
+    private var activeRecordingBranch = ActiveRecordingBranch.NONE
     private var processingJob: kotlinx.coroutines.Job? = null
     private var recordingStartTimeMs: Long = 0L
     private var smsSequence: Long = 1000L
@@ -79,8 +89,11 @@ class ExpenseViewModel(
             is ExpenseIntent.FinishProcessingReady -> finishProcessingReady()
             is ExpenseIntent.UpdateAmplitude -> updateAmplitude(intent.amplitude)
             is ExpenseIntent.ParseManualSpeechText -> parseManualSpeechText(intent.rawText)
+            is ExpenseIntent.UpdatePendingRawText -> updatePendingRawText(intent.rawText)
+            is ExpenseIntent.ReparsePendingText -> reparsePendingText(intent.rawText)
             is ExpenseIntent.ParseBankSms -> parseBankSms(intent.smsBody)
             is ExpenseIntent.ConfirmBatch -> confirmBatch(intent.batch)
+            is ExpenseIntent.ConfirmSplitBatch -> confirmSplitBatch(intent.batch)
             is ExpenseIntent.DeleteExpense -> deleteExpense(intent.expenseId)
             is ExpenseIntent.RestoreExpense -> restoreExpense(intent.item)
             is ExpenseIntent.EditExpense -> editExpense(intent.item)
@@ -105,6 +118,7 @@ class ExpenseViewModel(
             is ExpenseIntent.ExportPdfReport -> exportPdfReport()
             is ExpenseIntent.DismissExportResult -> dismissExportResult()
             is ExpenseIntent.OpenManualSheet -> openManualSheet()
+            is ExpenseIntent.OpenDraftReviewSheet -> openDraftReviewSheet(intent.initialText)
             is ExpenseIntent.DismissReviewSheet -> dismissReviewSheet()
             is ExpenseIntent.DismissFallbackSheet -> dismissFallbackSheet()
             is ExpenseIntent.DismissPermissionRationale -> dismissPermissionRationale()
@@ -141,13 +155,19 @@ class ExpenseViewModel(
             repository.initialize()
 
             repository.expensesFlow.collect { rawExpenses ->
-                val expenses = rawExpenses.distinctBy { it.id }
+                val allExpenses = rawExpenses.distinctBy { it.id }
+                val personalExpenses = allExpenses.filter { it.recordType != ExpenseRecordType.RECEIVABLE }
+                val receivableExpenses = allExpenses.filter {
+                    it.recordType == ExpenseRecordType.RECEIVABLE ||
+                        it.recordType == ExpenseRecordType.PAYABLE ||
+                        it.split != null
+                }
                 val todayTotal = repository.getTodayTotal()
                 val weeklyTotal = repository.getWeeklyTotal()
                 val currentFilter = _uiState.value.selectedCategoryFilter
                 val currentSearch = _uiState.value.searchQuery.trim().lowercase()
 
-                val filtered = expenses.filter { item ->
+                val filtered = personalExpenses.filter { item ->
                     val matchCat = currentFilter == null || item.category == currentFilter
                     val matchQuery = currentSearch.isEmpty() ||
                         item.title.lowercase().contains(currentSearch) ||
@@ -157,19 +177,20 @@ class ExpenseViewModel(
 
                 val currentPeriod = _uiState.value.selectedReportPeriod
                 val report = ReportBuilder.buildReport(
-                    expenses = expenses,
+                    expenses = personalExpenses,
                     period = currentPeriod,
                     weekStartDayIso = preferences.getWeekStartDay()
                 )
 
                 val activeCur = preferences.getPreferredCurrency()
-                val totalReceivables = ReceivablesLedger.getTotalRemaining(expenses, activeCur)
+                val totalReceivables = ReceivablesLedger.getTotalRemaining(allExpenses, activeCur)
 
                 _uiState.update { state ->
                     state.copy(
                         isLoading = false,
-                        recentExpenses = expenses,
+                        recentExpenses = personalExpenses,
                         filteredExpenses = filtered,
+                        receivableExpenses = receivableExpenses,
                         todayTotal = todayTotal,
                         weeklyTotal = weeklyTotal,
                         weeklyBudget = preferences.getWeeklyBudget(),
@@ -191,16 +212,9 @@ class ExpenseViewModel(
             _effects.emit(ExpenseEffect.TriggerHapticFeedback)
             _effects.emit(ExpenseEffect.Haptic(HapticKind.TICK))
 
-            if (audioRecorder != null || transcriber != null) {
-                if (transcriber?.isModelReady() == false) {
-                    handleSpeechError(SpeechError.ModelMissing)
-                    return@launch
-                }
-                if (audioRecorder == null) {
-                    handleSpeechError(SpeechError.AudioCapture)
-                    return@launch
-                }
-
+            // Primary branch: On-device offline Whisper pipeline
+            if (audioRecorder != null && transcriber != null && transcriber.isModelReady()) {
+                activeRecordingBranch = ActiveRecordingBranch.WHISPER
                 recordingStartTimeMs = Clock.System.now().toEpochMilliseconds()
                 _uiState.update {
                     it.copy(
@@ -217,243 +231,264 @@ class ExpenseViewModel(
                         updateAmplitude(amp)
                     },
                     onError = { error ->
+                        activeRecordingBranch = ActiveRecordingBranch.NONE
                         handleSpeechError(error)
                     }
                 )
                 return@launch
             }
 
+            // Dual-branch fallback: On-device speech recognition engine if Whisper is not ready
             val engine = voiceEngine
-            if (engine == null || !engine.isAvailable()) {
-                handleSpeechError(SpeechError.ModelMissing)
+            if (engine != null && engine.isAvailable()) {
+                activeRecordingBranch = ActiveRecordingBranch.VOICE_ENGINE
+                recordingStartTimeMs = Clock.System.now().toEpochMilliseconds()
+                _uiState.update {
+                    it.copy(
+                        isRecording = true,
+                        recordingAmplitude = 0f,
+                        userErrorMessage = null,
+                        showFallbackManualSheet = false,
+                        reviewSheetPendingBatch = null
+                    )
+                }
+
+                engine.startListening(
+                    onResult = { text ->
+                        activeRecordingBranch = ActiveRecordingBranch.NONE
+                        _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+                        if (text.isNotBlank()) {
+                            processRecognizedSpeech(text)
+                        } else {
+                            handleSpeechError(SpeechError.EmptyResult)
+                        }
+                    },
+                    onAmplitudeChanged = { amp ->
+                        updateAmplitude(amp)
+                    },
+                    onError = { error ->
+                        activeRecordingBranch = ActiveRecordingBranch.NONE
+                        handleVoiceEngineError(error)
+                    }
+                )
                 return@launch
             }
 
-            recordingStartTimeMs = Clock.System.now().toEpochMilliseconds()
-            _uiState.update {
-                it.copy(
-                    isRecording = true,
-                    recordingAmplitude = 0f,
-                    userErrorMessage = null,
-                    showFallbackManualSheet = false,
-                    reviewSheetPendingBatch = null
-                )
+            // Neither engine available
+            activeRecordingBranch = ActiveRecordingBranch.NONE
+            if (audioRecorder == null && transcriber != null) {
+                handleSpeechError(SpeechError.AudioCapture)
+            } else {
+                handleSpeechError(SpeechError.ModelMissing)
             }
+        }
+    }
 
-            engine.startListening(
-                onResult = { text ->
-                    _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
-                    if (text.isNotBlank()) {
-                        _uiState.update { it.copy(processingStage = ProcessingStage.UNDERSTANDING) }
-                        parseManualSpeechText(text)
-                        _uiState.update { it.copy(processingStage = ProcessingStage.READY) }
-                    } else {
-                        _uiState.update {
-                            it.copy(
-                                isRecording = false,
-                                recordingAmplitude = 0f,
-                                processingStage = ProcessingStage.IDLE,
-                                showFallbackManualSheet = true,
-                                reviewSheetPendingBatch = null,
-                                userErrorMessage = "لم يتم التقاط أي كلام، يمكنك إدخال المصروف يدوياً"
-                            )
-                        }
-                        viewModelScope.launch {
-                            _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
-                        }
-                    }
-                },
-                onAmplitudeChanged = { amp ->
-                    updateAmplitude(amp)
-                },
-                onError = { error ->
-                    _uiState.update {
-                        it.copy(
-                            isRecording = false,
-                            recordingAmplitude = 0f,
-                            processingStage = ProcessingStage.IDLE,
-                            showFallbackManualSheet = true,
-                            reviewSheetPendingBatch = null
-                        )
-                    }
-                    when (error) {
-                        "PERMISSION_DENIED" -> {
-                            _uiState.update {
-                                it.copy(
-                                    showPermissionRationaleDialog = true,
-                                    showPermissionRationaleSheet = true
-                                )
-                            }
-                            viewModelScope.launch {
-                                _effects.emit(ExpenseEffect.RequestMicPermission)
-                                _effects.emit(ExpenseEffect.ShowToast("يرجى منح إذن استخدام الميكروفون"))
-                            }
-                        }
-                        "NO_MATCH" -> {
-                            _uiState.update {
-                                it.copy(
-                                    userErrorMessage = "لم يتم التقاط أي كلام، يمكنك إدخال المصروف يدوياً"
-                                )
-                            }
-                            viewModelScope.launch {
-                                _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
-                            }
-                        }
-                        else -> {
-                            _uiState.update {
-                                it.copy(
-                                    userErrorMessage = "تعذر التعرف على الصوت محلياً"
-                                )
-                            }
-                            viewModelScope.launch {
-                                _effects.emit(ExpenseEffect.ShowToast("تعذر التعرف على الصوت محلياً"))
-                            }
-                        }
-                    }
-                }
+    private fun handleVoiceEngineError(error: String) {
+        _uiState.update {
+            it.copy(
+                isRecording = false,
+                recordingAmplitude = 0f,
+                processingStage = ProcessingStage.IDLE,
+                showFallbackManualSheet = true,
+                reviewSheetPendingBatch = null
             )
+        }
+        when (error) {
+            "PERMISSION_DENIED" -> {
+                _uiState.update {
+                    it.copy(
+                        showPermissionRationaleDialog = true,
+                        showPermissionRationaleSheet = true
+                    )
+                }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.RequestMicPermission)
+                    _effects.emit(ExpenseEffect.ShowToast("يرجى منح إذن استخدام الميكروفون"))
+                }
+            }
+            "NO_MATCH" -> {
+                _uiState.update {
+                    it.copy(
+                        userErrorMessage = "لم يتم التقاط أي كلام، يمكنك إدخال المصروف يدوياً"
+                    )
+                }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast("لم يتم التقاط أي كلام، حاول مجدداً"))
+                }
+            }
+            else -> {
+                _uiState.update {
+                    it.copy(
+                        userErrorMessage = "تعذر التعرف على الصوت محلياً"
+                    )
+                }
+                viewModelScope.launch {
+                    _effects.emit(ExpenseEffect.ShowToast("تعذر التعرف على الصوت محلياً"))
+                }
+            }
         }
     }
 
     private fun stopRecording() {
         if (!_uiState.value.isRecording) return
 
-        if (audioRecorder != null || transcriber != null) {
-            val recorder = audioRecorder
-            var audioCaptureFailed = false
-            val pcm: ShortArray? = try {
-                recorder?.stopRecording()
-            } catch (_: Throwable) {
-                audioCaptureFailed = true
-                null
-            } finally {
-                _uiState.update {
-                    it.copy(
-                        isRecording = false,
-                        recordingAmplitude = 0f
-                    )
+        val branch = activeRecordingBranch
+        activeRecordingBranch = ActiveRecordingBranch.NONE
+
+        when (branch) {
+            ActiveRecordingBranch.WHISPER -> {
+                stopWhisperRecording()
+            }
+            ActiveRecordingBranch.VOICE_ENGINE -> {
+                stopVoiceEngineRecording()
+            }
+            ActiveRecordingBranch.NONE -> {
+                if (audioRecorder?.isRecording() == true) {
+                    stopWhisperRecording()
+                } else if (voiceEngine != null) {
+                    stopVoiceEngineRecording()
+                } else {
+                    _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
                 }
             }
+        }
+    }
 
-            if (audioCaptureFailed) {
-                handleSpeechError(SpeechError.AudioCapture)
-                return
+    private fun stopVoiceEngineRecording() {
+        _uiState.update { it.copy(isRecording = false, recordingAmplitude = 0f) }
+        try {
+            voiceEngine?.stopListening()
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun stopWhisperRecording() {
+        val recorder = audioRecorder
+        var audioCaptureFailed = false
+        val pcm: ShortArray? = try {
+            recorder?.stopRecording()
+        } catch (_: Throwable) {
+            audioCaptureFailed = true
+            null
+        } finally {
+            _uiState.update {
+                it.copy(
+                    isRecording = false,
+                    recordingAmplitude = 0f
+                )
             }
+        }
 
-            if (pcm == null || pcm.isEmpty()) {
-                handleSpeechError(SpeechError.EmptyResult)
-                return
-            }
-
-            // Apply Voice Activity Detection (VAD) to trim silence and reject empty audio
-            val vad = VoiceActivityDetector()
-            val (speechPcm, speechDurationMs) = when (val vadResult = vad.process(pcm)) {
-                is VadResult.Speech -> vadResult.trimmedPcm to vadResult.speechDurationMs
-                is VadResult.NoSpeech -> {
-                    handleSpeechError(SpeechError.EmptyResult)
-                    return
-                }
-            }
-
-            val transcriberEngine = transcriber
-            if (transcriberEngine == null) {
-                _uiState.update {
-                    it.copy(
-                        processingStage = ProcessingStage.IDLE,
-                        showFallbackManualSheet = true,
-                        reviewSheetPendingBatch = null,
-                        userErrorMessage = "نموذج التفريغ الصوتي غير متوفر"
-                    )
-                }
-                return
-            }
-
-            val recordedDurationMs = if (recordingStartTimeMs > 0L) {
-                maxOf(0L, Clock.System.now().toEpochMilliseconds() - recordingStartTimeMs)
-            } else {
-                speechDurationMs
-            }
-            recordingStartTimeMs = 0L
-            val effectiveDurationMs = maxOf(recordedDurationMs, speechDurationMs)
-            val dynamicTimeoutMs = (effectiveDurationMs * 2).coerceIn(5_000L, 15_000L)
-
-            processingJob?.cancel()
-            processingJob = viewModelScope.launch {
-                _uiState.update { it.copy(processingStage = ProcessingStage.FINALIZING_AUDIO) }
-                _uiState.update { it.copy(processingStage = ProcessingStage.TRANSCRIBING) }
-
-                try {
-                    val result = kotlinx.coroutines.withTimeoutOrNull(dynamicTimeoutMs) {
-                        transcriberEngine.transcribe(
-                            speechPcm,
-                            WhisperModelConfig(language = "ar", translate = false)
-                        )
-                    }
-
-                    if (result == null) {
-                        _uiState.update {
-                            it.copy(
-                                processingStage = ProcessingStage.IDLE,
-                                showFallbackManualSheet = true,
-                                reviewSheetPendingBatch = null,
-                                userErrorMessage = "استغرقت المعالجة وقتاً أطول من المتوقع، يمكنك إدخال المصروف يدوياً"
-                            )
-                        }
-                        _effects.emit(ExpenseEffect.ShowToast("استغرقت المعالجة وقتاً أطول من المتوقع"))
-                        return@launch
-                    }
-
-                    when (result) {
-                        is TranscribeResult.Success -> {
-                            if (result.text.isNotBlank()) {
-                                _uiState.update { it.copy(processingStage = ProcessingStage.UNDERSTANDING) }
-                                val now = Clock.System.now().toEpochMilliseconds()
-                                val normalized = TranscriptNormalizer.normalize(result.text)
-                                val initialBatch = parser.parseSpokenText(
-                                    spokenText = normalized.normalizedText,
-                                    defaultCurrency = _uiState.value.activeCurrency,
-                                    currentTimestamp = now
-                                )
-                                val batch = initialBatch.copy(
-                                    items = initialBatch.items.map { it.copy(rawSpokenText = result.text) }
-                                )
-                                _uiState.update {
-                                    it.copy(
-                                        processingStage = ProcessingStage.READY,
-                                        reviewSheetPendingBatch = batch,
-                                        showFallbackManualSheet = false
-                                    )
-                                }
-                            } else {
-                                handleSpeechError(SpeechError.EmptyResult)
-                            }
-                        }
-                        is TranscribeResult.Failure -> {
-                            handleSpeechError(result.error)
-                        }
-                    }
-                } catch (ce: kotlinx.coroutines.CancellationException) {
-                    throw ce
-                } catch (t: Throwable) {
-                    handleSpeechError(SpeechError.Unknown(t.message ?: "Transcription failed"))
-                }
-            }
+        if (audioCaptureFailed) {
+            handleSpeechError(SpeechError.AudioCapture)
             return
         }
 
-        val engine = voiceEngine
-        if (engine != null) {
-            try {
-                engine.stopListening()
-            } catch (_: Throwable) {
-            } finally {
-                _uiState.update { it.copy(isRecording = false) }
-            }
+        if (pcm == null || pcm.isEmpty()) {
+            handleSpeechError(SpeechError.EmptyResult)
             return
+        }
+
+        // Apply Voice Activity Detection (VAD) to trim silence and reject empty audio
+        val vad = VoiceActivityDetector()
+        val (speechPcm, speechDurationMs) = when (val vadResult = vad.process(pcm)) {
+            is VadResult.Speech -> vadResult.trimmedPcm to vadResult.speechDurationMs
+            is VadResult.NoSpeech -> {
+                handleSpeechError(SpeechError.EmptyResult)
+                return
+            }
+        }
+
+        val transcriberEngine = transcriber
+        if (transcriberEngine == null) {
+            handleSpeechError(SpeechError.ModelMissing)
+            return
+        }
+
+        val recordedDurationMs = if (recordingStartTimeMs > 0L) {
+            maxOf(0L, Clock.System.now().toEpochMilliseconds() - recordingStartTimeMs)
+        } else {
+            speechDurationMs
+        }
+        recordingStartTimeMs = 0L
+        val effectiveDurationMs = maxOf(recordedDurationMs, speechDurationMs)
+        val dynamicTimeoutMs = (effectiveDurationMs * 3 + 10_000L).coerceIn(15_000L, 30_000L)
+
+        processingJob?.cancel()
+        processingJob = viewModelScope.launch {
+            _uiState.update { it.copy(processingStage = ProcessingStage.FINALIZING_AUDIO) }
+            _uiState.update { it.copy(processingStage = ProcessingStage.TRANSCRIBING) }
+
+            try {
+                val result = kotlinx.coroutines.withTimeoutOrNull(dynamicTimeoutMs) {
+                    transcriberEngine.transcribe(
+                        speechPcm,
+                        WhisperModelConfig(language = "ar", translate = false)
+                    )
+                }
+
+                if (result == null) {
+                    _uiState.update {
+                        it.copy(
+                            processingStage = ProcessingStage.IDLE,
+                            showFallbackManualSheet = true,
+                            reviewSheetPendingBatch = null,
+                            userErrorMessage = "استغرقت المعالجة وقتاً أطول من المتوقع، يمكنك إدخال المصروف يدوياً"
+                        )
+                    }
+                    _effects.emit(ExpenseEffect.ShowToast("استغرقت المعالجة وقتاً أطول من المتوقع"))
+                    return@launch
+                }
+
+                when (result) {
+                    is TranscribeResult.Success -> {
+                        if (result.text.isNotBlank()) {
+                            processRecognizedSpeech(result.text)
+                        } else {
+                            handleSpeechError(SpeechError.EmptyResult)
+                        }
+                    }
+                    is TranscribeResult.Failure -> {
+                        handleSpeechError(result.error)
+                    }
+                }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                handleSpeechError(SpeechError.Unknown(t.message ?: "Transcription failed"))
+            }
+        }
+    }
+
+    private fun processRecognizedSpeech(text: String) {
+        if (text.isBlank()) {
+            handleSpeechError(SpeechError.EmptyResult)
+            return
+        }
+        _uiState.update { it.copy(processingStage = ProcessingStage.UNDERSTANDING) }
+        val now = Clock.System.now().toEpochMilliseconds()
+        val normalized = TranscriptNormalizer.normalize(text)
+        val initialBatch = parser.parseSpokenText(
+            spokenText = normalized.normalizedText,
+            defaultCurrency = _uiState.value.activeCurrency,
+            currentTimestamp = now
+        )
+        val batch = initialBatch.copy(
+            items = initialBatch.items.map { it.copy(rawSpokenText = text) }
+        )
+        _uiState.update {
+            it.copy(
+                processingStage = ProcessingStage.READY,
+                reviewSheetPendingBatch = batch,
+                showFallbackManualSheet = false,
+                userErrorMessage = null
+            )
         }
     }
 
     private fun cancelProcessing() {
+        activeRecordingBranch = ActiveRecordingBranch.NONE
         processingJob?.cancel()
         processingJob = null
         recordingStartTimeMs = 0L
@@ -476,6 +511,9 @@ class ExpenseViewModel(
     }
 
     private fun handleSpeechError(error: SpeechError) {
+        processingJob?.cancel()
+        processingJob = null
+        recordingStartTimeMs = 0L
         _uiState.update {
             it.copy(
                 isRecording = false,
@@ -600,8 +638,72 @@ class ExpenseViewModel(
         _uiState.update {
             it.copy(
                 isRecording = false,
+                recordingAmplitude = 0f,
+                processingStage = ProcessingStage.IDLE,
                 reviewSheetPendingBatch = batch,
-                showFallbackManualSheet = false
+                showFallbackManualSheet = false,
+                userErrorMessage = null
+            )
+        }
+    }
+
+    private fun updatePendingRawText(rawText: String) {
+        _uiState.update { state ->
+            val pendingBatch = state.reviewSheetPendingBatch ?: return@update state
+            val updatedItems = pendingBatch.items.map { item ->
+                item.copy(rawSpokenText = rawText)
+            }
+            state.copy(
+                reviewSheetPendingBatch = pendingBatch.copy(items = updatedItems)
+            )
+        }
+    }
+
+    private fun reparsePendingText(rawText: String) {
+        if (rawText.isBlank()) return
+        val existingBatch = _uiState.value.reviewSheetPendingBatch
+        val existingItems = existingBatch?.items.orEmpty()
+        val fallbackReceiptPath = existingItems.firstNotNullOfOrNull { item ->
+            item.receiptPhotoPath?.takeIf { it.isNotBlank() }
+        }
+
+        val now = Clock.System.now().toEpochMilliseconds()
+        val normalized = TranscriptNormalizer.normalize(rawText)
+        val parsedBatch = parser.parseSpokenText(
+            spokenText = normalized.normalizedText,
+            defaultCurrency = _uiState.value.activeCurrency,
+            currentTimestamp = now
+        )
+        val updatedItems = parsedBatch.items.mapIndexed { index, item ->
+            val existingItem = existingItems.getOrNull(index)
+            val preservedReceiptPath = existingItem
+                ?.receiptPhotoPath
+                ?.takeIf { it.isNotBlank() }
+                ?: fallbackReceiptPath
+            val preservedProofType = if (preservedReceiptPath != null) {
+                existingItem?.proofType?.takeIf { it != ProofType.NONE } ?: ProofType.RECEIPT_PHOTO
+            } else {
+                item.proofType
+            }
+            item.copy(
+                rawSpokenText = rawText,
+                receiptPhotoPath = preservedReceiptPath,
+                proofType = preservedProofType
+            )
+        }
+        val updatedBatch = parsedBatch.copy(
+            batchId = existingBatch?.batchId ?: parsedBatch.batchId,
+            items = updatedItems
+        )
+
+        _uiState.update {
+            it.copy(
+                isRecording = false,
+                recordingAmplitude = 0f,
+                processingStage = ProcessingStage.IDLE,
+                reviewSheetPendingBatch = updatedBatch,
+                showFallbackManualSheet = false,
+                userErrorMessage = null
             )
         }
     }
@@ -657,10 +759,43 @@ class ExpenseViewModel(
         }
     }
 
+    private fun confirmSplitBatch(batch: ExpenseBatch) {
+        viewModelScope.launch {
+            val splitItems = ExpenseSplitSplitter.splitBatch(
+                batch = batch,
+                nowEpochMs = Clock.System.now().toEpochMilliseconds()
+            )
+            val existingIds = repository.getAllExpenses().map { it.id }.toSet()
+            val splitIds = splitItems.map { it.id }.toSet()
+            val replacedSourceIds = batch.items
+                .map { it.id }
+                .filter { it.isNotBlank() && it in existingIds && it !in splitIds }
+            for (oldId in replacedSourceIds) {
+                repository.deleteExpense(oldId)
+            }
+            val splitBatch = batch.copy(
+                items = splitItems,
+                totalBatchAmount = splitItems.sumOf { it.amount }
+            )
+            repository.saveBatch(splitBatch)
+            _uiState.update {
+                it.copy(
+                    reviewSheetPendingBatch = null,
+                    processingStage = ProcessingStage.IDLE
+                )
+            }
+            _effects.emit(ExpenseEffect.TriggerHapticFeedback)
+            _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
+            _effects.emit(ExpenseEffect.ShowToast("تم تسجيل المصروف بنجاح"))
+        }
+    }
+
     // Direct deletion (tests expect DeleteExpense to remove item directly)
     private fun deleteExpense(expenseId: String) {
         viewModelScope.launch {
-            val itemToDelete = _uiState.value.recentExpenses.find { it.id == expenseId }
+            val currentState = _uiState.value
+            val itemToDelete = currentState.recentExpenses.find { it.id == expenseId }
+                ?: currentState.receivableExpenses.find { it.id == expenseId }
             repository.deleteExpense(expenseId)
             if (itemToDelete != null) {
                 _uiState.update { it.copy(lastUndoOperation = UndoOperation.Deleted(itemToDelete)) }
@@ -873,7 +1008,17 @@ class ExpenseViewModel(
         viewModelScope.launch {
             val tt = repository.getTodayTotal()
             val wt = repository.getWeeklyTotal()
-            _uiState.update { it.copy(todayTotal = tt, weeklyTotal = wt) }
+            val totalReceivables = ReceivablesLedger.getTotalRemaining(
+                expenses = repository.getAllExpenses(),
+                currency = currency
+            )
+            _uiState.update {
+                it.copy(
+                    todayTotal = tt,
+                    weeklyTotal = wt,
+                    receivablesTotalRemaining = totalReceivables
+                )
+            }
         }
     }
 
@@ -983,7 +1128,8 @@ class ExpenseViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isExportingReport = true, exportErrorMessage = null) }
             try {
-                val bytes = XlsxWriter.writeReceivablesWorkbook(_uiState.value.recentExpenses)
+                val allExpenses = repository.getAllExpenses()
+                val bytes = XlsxWriter.writeReceivablesWorkbook(allExpenses)
                 val fileName = ExportNamer.generateFileName(
                     type = "receivables",
                     scope = "all",
@@ -1096,7 +1242,11 @@ class ExpenseViewModel(
             try {
                 val current = repository.getAllExpenses()
                 val updated = ReceivablesLedger.renameParty(current, oldName, newName)
-                updated.forEach { repository.updateExpense(it) }
+                updated.forEachIndexed { idx, item ->
+                    if (item != current.getOrNull(idx)) {
+                        repository.updateExpense(item)
+                    }
+                }
                 _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
                 _effects.emit(ExpenseEffect.ShowMessage("تم تعديل الاسم بنجاح", MessageKind.SUCCESS))
             } catch (t: Throwable) {
@@ -1109,15 +1259,89 @@ class ExpenseViewModel(
     private fun mergeParties(sourceName: String, targetName: String) {
         viewModelScope.launch {
             try {
+                val trimmedTarget = targetName.trim()
                 val current = repository.getAllExpenses()
-                val updated = ReceivablesLedger.mergeParties(current, sourceName, targetName)
-                updated.forEach { repository.updateExpense(it) }
+                if (trimmedTarget.isNotBlank() && sourceName != trimmedTarget) {
+                    val targetPartyId = findCanonicalPartyId(current, trimmedTarget)
+                    val merged = ReceivablesLedger.mergeParties(current, sourceName, trimmedTarget)
+                    merged.forEachIndexed { idx, item ->
+                        val unified = unifyPartyIdForName(item, trimmedTarget, targetPartyId)
+                        if (unified != current.getOrNull(idx)) {
+                            repository.updateExpense(unified)
+                        }
+                    }
+                }
                 _effects.emit(ExpenseEffect.Haptic(HapticKind.CONFIRM))
                 _effects.emit(ExpenseEffect.ShowMessage("تم دمج الأسماء وتوحيد الأرصدة بنجاح", MessageKind.SUCCESS))
             } catch (t: Throwable) {
                 _effects.emit(ExpenseEffect.Haptic(HapticKind.REJECT))
                 _effects.emit(ExpenseEffect.ShowMessage(t.message ?: "تعذر دمج الأسماء", MessageKind.ERROR))
             }
+        }
+    }
+
+    private fun findCanonicalPartyId(expenses: List<ExpenseItem>, targetName: String): String {
+        for (expense in expenses) {
+            if (!expense.payer.isCurrentUser && expense.payer.name == targetName && expense.payer.id.isNotBlank()) {
+                return expense.payer.id
+            }
+            val split = expense.split ?: continue
+            if (!split.payer.isCurrentUser && split.payer.name == targetName && split.payer.id.isNotBlank()) {
+                return split.payer.id
+            }
+            split.allocations
+                .firstOrNull { !it.party.isCurrentUser && it.party.name == targetName && it.party.id.isNotBlank() }
+                ?.let { return it.party.id }
+            split.participants
+                .firstOrNull { !it.isCurrentUser && it.name == targetName && it.id.isNotBlank() }
+                ?.let { return it.id }
+        }
+        return targetName
+    }
+
+    private fun unifyPartyIdForName(
+        item: ExpenseItem,
+        targetName: String,
+        targetPartyId: String
+    ): ExpenseItem {
+        val updatedPayer = if (!item.payer.isCurrentUser && item.payer.name == targetName && item.payer.id != targetPartyId) {
+            item.payer.copy(id = targetPartyId)
+        } else {
+            item.payer
+        }
+        val split = item.split
+        val updatedSplit = if (split != null) {
+            val updatedSplitPayer = if (!split.payer.isCurrentUser && split.payer.name == targetName && split.payer.id != targetPartyId) {
+                split.payer.copy(id = targetPartyId)
+            } else {
+                split.payer
+            }
+            val updatedAllocations = split.allocations.map { alloc ->
+                if (!alloc.party.isCurrentUser && alloc.party.name == targetName && alloc.party.id != targetPartyId) {
+                    alloc.copy(party = alloc.party.copy(id = targetPartyId))
+                } else {
+                    alloc
+                }
+            }
+            val updatedParticipants = split.participants.map { p ->
+                if (!p.isCurrentUser && p.name == targetName && p.id != targetPartyId) {
+                    p.copy(id = targetPartyId)
+                } else {
+                    p
+                }
+            }
+            split.copy(
+                payer = updatedSplitPayer,
+                allocations = updatedAllocations,
+                participants = updatedParticipants
+            )
+        } else {
+            null
+        }
+        return if (updatedPayer == item.payer && updatedSplit == item.split) {
+            item
+        } else {
+            item.copy(payer = updatedPayer, split = updatedSplit)
         }
     }
 
@@ -1136,8 +1360,40 @@ class ExpenseViewModel(
     private fun openManualSheet() {
         _uiState.update {
             it.copy(
+                processingStage = ProcessingStage.IDLE,
                 showFallbackManualSheet = true,
-                reviewSheetPendingBatch = null
+                reviewSheetPendingBatch = null,
+                userErrorMessage = null
+            )
+        }
+    }
+
+    private fun openDraftReviewSheet(initialText: String = "") {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val seq = LocalDialectExpenseParser.nextSequence()
+        val defaultCurrency = _uiState.value.activeCurrency
+        val initialItem = ExpenseItem(
+            id = "exp_draft_${now}_$seq",
+            title = "",
+            amount = 0.0,
+            currency = defaultCurrency,
+            category = ExpenseCategory.GENERAL,
+            timestamp = now,
+            payer = Payer("self", "أنا", true),
+            rawSpokenText = initialText
+        )
+        val batch = ExpenseBatch(
+            batchId = "batch_draft_${now}_$seq",
+            items = listOf(initialItem),
+            totalBatchAmount = 0.0,
+            createdAt = now
+        )
+        _uiState.update {
+            it.copy(
+                processingStage = ProcessingStage.IDLE,
+                reviewSheetPendingBatch = batch,
+                showFallbackManualSheet = false,
+                userErrorMessage = null
             )
         }
     }
@@ -1152,7 +1408,12 @@ class ExpenseViewModel(
     }
 
     private fun dismissFallbackSheet() {
-        _uiState.update { it.copy(showFallbackManualSheet = false) }
+        _uiState.update {
+            it.copy(
+                showFallbackManualSheet = false,
+                userErrorMessage = null
+            )
+        }
     }
 
     private fun dismissPermissionRationale() {
@@ -1171,6 +1432,7 @@ class ExpenseViewModel(
 
     public override fun onCleared() {
         super.onCleared()
+        activeRecordingBranch = ActiveRecordingBranch.NONE
         processingJob?.cancel()
         processingJob = null
         recordingStartTimeMs = 0L

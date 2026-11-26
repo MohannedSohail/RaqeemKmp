@@ -401,6 +401,95 @@ class DialectParserTest {
         assertEquals(40.0, result.items[0].amount)
         assertEquals(ExpenseCategory.TRANSPORT, result.items[0].category)
         assertEquals(12.0, result.items[1].amount)
+        assertEquals("قهوة", result.items[1].title)
         assertEquals(ExpenseCategory.DINING, result.items[1].category)
+    }
+
+    // 33. Multi-item with Arabic word amounts where tens precede hundreds ("بخمسين ومية")
+    @Test
+    fun testMultiItemTensBeforeHundredsDoesNotMergeNumbers() {
+        val result = parser.parseSpokenText(
+            "بنزين بخمسين وقهوة بعشرين ومية سوبرماركت",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        assertEquals(3, result.items.size)
+        assertEquals(170.0, result.totalBatchAmount)
+        assertEquals(50.0, result.items[0].amount)
+        assertEquals(ExpenseCategory.TRANSPORT, result.items[0].category)
+        assertEquals(20.0, result.items[1].amount)
+        assertEquals("قهوة", result.items[1].title)
+        assertEquals(ExpenseCategory.DINING, result.items[1].category)
+        assertEquals(100.0, result.items[2].amount)
+        assertEquals("سوبرماركت", result.items[2].title)
+        assertEquals(ExpenseCategory.GROCERIES, result.items[2].category)
+    }
+
+    // 34. Multi-item preserving valid compound numbers ("بمية وخمسين وتكسي بعشرين")
+    @Test
+    fun testMultiItemPreservesValidCompoundNumbers() {
+        val result = parser.parseSpokenText(
+            "بنزين بمية وخمسين وتكسي بعشرين",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        assertEquals(2, result.items.size)
+        assertEquals(170.0, result.totalBatchAmount)
+        assertEquals(150.0, result.items[0].amount)
+        assertEquals(ExpenseCategory.TRANSPORT, result.items[0].category)
+        assertEquals(20.0, result.items[1].amount)
+        assertEquals("تكسي", result.items[1].title)
+        assertEquals(ExpenseCategory.TRANSPORT, result.items[1].category)
+    }
+
+    // 35. Multi-item separated by Arabic commas
+    @Test
+    fun testMultiItemCommaSeparated() {
+        val result = parser.parseSpokenText(
+            "بنزين 50، قهوة 15، سوبرماركت 100",
+            defaultCurrency = "₪",
+            currentTimestamp = fixedTimestamp
+        )
+        assertEquals(3, result.items.size)
+        assertEquals(165.0, result.totalBatchAmount)
+        assertEquals(50.0, result.items[0].amount)
+        assertEquals(15.0, result.items[1].amount)
+        assertEquals(100.0, result.items[2].amount)
+    }
+
+    // 36. Dual currency amounts ("شيكلين", "ريالين")
+    @Test
+    fun testDualCurrencyColloquialAmounts() {
+        val r1 = parser.parseSpokenText("قهوة بشيكلين", defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        assertEquals(2.0, r1.items.first().amount)
+        assertEquals("₪", r1.items.first().currency)
+
+        val r2 = parser.parseSpokenText("عصير بريالين", defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        assertEquals(2.0, r2.items.first().amount)
+        assertEquals("ر.س", r2.items.first().currency)
+    }
+
+    // 37. Construct hundreds and colloquial teens
+    @Test
+    fun testConstructHundredsAndColloquialTeens() {
+        val r1 = parser.parseSpokenText("فاتورة خمسميت ريال", defaultCurrency = "ر.س", currentTimestamp = fixedTimestamp)
+        assertEquals(500.0, r1.items.first().amount)
+        assertEquals(ExpenseCategory.BILLS, r1.items.first().category)
+
+        val r2 = parser.parseSpokenText("شاورما بخمستعش شيكل", defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        assertEquals(15.0, r2.items.first().amount)
+        assertEquals(ExpenseCategory.DINING, r2.items.first().category)
+    }
+
+    // 38. Expanded dialect categories and non-party "ليرة" currency guard
+    @Test
+    fun testExpandedCategoriesAndCurrencyGuard() {
+        val r1 = parser.parseSpokenText("شحن رصيد نت ب 50 شيكل", defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        assertEquals(ExpenseCategory.BILLS, r1.items.first().category)
+        assertEquals("شحن رصيد", r1.items.first().title)
+
+        val r2 = parser.parseSpokenText("قهوة ب 30 ليرة", defaultCurrency = "₪", currentTimestamp = fixedTimestamp)
+        assertEquals(30.0, r2.items.first().amount)
+        assertEquals(null, r2.items.first().split, "Currency word 'ليرة' must not create a false party allocation")
     }
 }

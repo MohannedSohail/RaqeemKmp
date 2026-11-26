@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,11 +79,13 @@ fun ExpenseItemCard(
     onRequestDelete: (ExpenseItem) -> Unit,
     onRequestRepeat: (ExpenseItem) -> Unit,
     onChangeCategory: (ExpenseItem, ExpenseCategory) -> Unit,
+    onViewReceipt: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val haptics = LocalRaqeemHaptics.current
     var showMenu by remember { mutableStateOf(false) }
     var isCategoryRowExpanded by remember { mutableStateOf(false) }
+    val receiptUri = item.receiptPhotoPath?.takeIf { it.isNotBlank() }
 
     val categoryColor = when (item.category) {
         ExpenseCategory.GROCERIES -> RaqeemColors.CatGroceries
@@ -102,7 +105,7 @@ fun ExpenseItemCard(
     val borderColor = if (isHighlighted) {
         RaqeemColors.EmeraldGreen.copy(alpha = 0.5f)
     } else {
-        Color.White.copy(alpha = 0.07f)
+        Color.White.copy(alpha = 0.08f)
     }
 
     val dismissState = rememberSwipeToDismissBoxState(
@@ -157,11 +160,14 @@ fun ExpenseItemCard(
                     }
                 )
                 .semantics {
-                    customActions = listOf(
-                        CustomAccessibilityAction("تكرار المصروف") { onRequestRepeat(item); true },
-                        CustomAccessibilityAction("تعديل المصروف") { onEdit(item); true },
-                        CustomAccessibilityAction("حذف المصروف") { onRequestDelete(item); true }
-                    )
+                    customActions = buildList {
+                        add(CustomAccessibilityAction("تكرار المصروف") { onRequestRepeat(item); true })
+                        add(CustomAccessibilityAction("تعديل المصروف") { onEdit(item); true })
+                        if (receiptUri != null && onViewReceipt != null) {
+                            add(CustomAccessibilityAction("عرض الإيصال") { onViewReceipt(receiptUri); true })
+                        }
+                        add(CustomAccessibilityAction("حذف المصروف") { onRequestDelete(item); true })
+                    }
                 }
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
@@ -231,6 +237,36 @@ fun ExpenseItemCard(
                                     color = RaqeemColors.TextTertiary,
                                     fontSize = 11.sp
                                 )
+                            }
+
+                            if (receiptUri != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable(enabled = onViewReceipt != null) {
+                                            onViewReceipt?.invoke(receiptUri)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(RaqeemColors.ElectricCyan.copy(alpha = 0.12f))
+                                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        RaqeemIcons.Receipt(size = 11.dp, tint = RaqeemColors.ElectricCyan)
+                                        Text(
+                                            text = "إيصال",
+                                            color = RaqeemColors.ElectricCyan,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -361,6 +397,17 @@ fun ExpenseItemCard(
                         onEdit(item)
                     }
                 )
+
+                if (receiptUri != null && onViewReceipt != null) {
+                    DropdownMenuItem(
+                        text = { Text("عرض الإيصال", color = RaqeemColors.ElectricCyan, fontSize = 14.sp) },
+                        leadingIcon = { RaqeemIcons.Receipt(size = 18.dp, tint = RaqeemColors.ElectricCyan) },
+                        onClick = {
+                            showMenu = false
+                            onViewReceipt(receiptUri)
+                        }
+                    )
+                }
 
                 HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
 

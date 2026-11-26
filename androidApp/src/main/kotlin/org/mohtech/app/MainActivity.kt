@@ -14,9 +14,14 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.mohtech.app.ai.audio.AndroidVoiceBridge
 import org.mohtech.app.data.storage.AndroidContextHolder
 import org.mohtech.app.feature.receipts.PlatformReceiptPicker
+import org.mohtech.app.feature.receipts.PlatformReceiptStorage
 import org.mohtech.app.feature.receipts.ReceiptPickerBridge
 import org.mohtech.app.feature.reports.AndroidReportBridge
 import java.io.File
@@ -32,23 +37,28 @@ class MainActivity : ComponentActivity() {
     private val pickReceiptLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                val receiptsDir = File(filesDir, "receipts").apply { if (!exists()) mkdirs() }
-                val destFile = File(receiptsDir, "${targetReceiptExpenseId}.jpg")
-                contentResolver.openInputStream(uri)?.use { inStream ->
-                    destFile.outputStream().use { outStream ->
-                        inStream.copyTo(outStream)
-                    }
-                }
-                onReceiptPickedCallback?.invoke(destFile.absolutePath)
-            } catch (_: Throwable) {
-                onReceiptPickedCallback?.invoke(null)
-            }
-        } else {
-            onReceiptPickedCallback?.invoke(null)
-        }
+        val key = targetReceiptExpenseId
+        val callback = onReceiptPickedCallback
         onReceiptPickedCallback = null
+        if (uri == null || callback == null) {
+            callback?.invoke(null)
+            return@registerForActivityResult
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val storedPath = try {
+                val rawBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (rawBytes != null) {
+                    PlatformReceiptStorage.compressAndStoreReceiptBytes(key, rawBytes)
+                } else {
+                    null
+                }
+            } catch (_: Throwable) {
+                null
+            }
+            withContext(Dispatchers.Main) {
+                callback.invoke(storedPath)
+            }
+        }
     }
 
     private val requestPermissionLauncher = registerForActivityResult(

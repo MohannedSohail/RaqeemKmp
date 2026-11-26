@@ -119,43 +119,152 @@ object ArabicNumberNormalizer {
         "تسعتاشر" to 19.0,
         "مية" to 100.0,
         "ميه" to 100.0,
+        "ميت" to 100.0,
         "مائة" to 100.0,
         "مئة" to 100.0,
         "ميتين" to 200.0,
         "مائتين" to 200.0,
         "مئتين" to 200.0,
         "ثلاثمية" to 300.0,
+        "ثلاثميت" to 300.0,
         "تلاتمية" to 300.0,
+        "تلاتميت" to 300.0,
         "تلاتميه" to 300.0,
         "ثلاثمائة" to 300.0,
         "أربعمية" to 400.0,
+        "أربعميت" to 400.0,
         "اربعمية" to 400.0,
+        "اربعميت" to 400.0,
         "اربعميه" to 400.0,
         "أربعمائة" to 400.0,
         "خمسمية" to 500.0,
+        "خمسميت" to 500.0,
         "خمسميه" to 500.0,
         "خمسمائة" to 500.0,
         "خمسمئة" to 500.0,
         "ستمية" to 600.0,
+        "ستميت" to 600.0,
         "ستميه" to 600.0,
         "ستمائة" to 600.0,
         "سبعمية" to 700.0,
+        "سبعميت" to 700.0,
         "سبعميه" to 700.0,
         "سبعمائة" to 700.0,
         "ثمانمية" to 800.0,
+        "ثمانميت" to 800.0,
         "تمانمية" to 800.0,
+        "تمانميت" to 800.0,
         "تمانميه" to 800.0,
         "ثمانمائة" to 800.0,
         "تسعمية" to 900.0,
+        "تسعميت" to 900.0,
         "تسعميه" to 900.0,
         "تسعمائة" to 900.0,
         "ألف" to 1000.0,
         "الف" to 1000.0,
         "ألفين" to 2000.0,
-        "الفين" to 2000.0
+        "الفين" to 2000.0,
+        "احدعش" to 11.0,
+        "حدعش" to 11.0,
+        "تلطعش" to 13.0,
+        "تلاتعش" to 13.0,
+        "اربعتعش" to 14.0,
+        "اربعطعش" to 14.0,
+        "خمستعش" to 15.0,
+        "خمسطعش" to 15.0,
+        "ستعش" to 16.0,
+        "ستطعش" to 16.0,
+        "سبعتعش" to 17.0,
+        "سبعطعش" to 17.0,
+        "تمنتعش" to 18.0,
+        "تمنطعش" to 18.0,
+        "تسعتعش" to 19.0,
+        "تسعطعش" to 19.0
     )
 
-    private val thousandsTokens = setOf("آلاف", "الاف", "ألاف", "الافاً")
+    private val thousandsTokens = setOf("آلاف", "الاف", "ألاف", "الافاً", "تلاف", "تآلاف")
+
+    private val dualCurrencyTokens = setOf(
+        "شيكلين", "شكلين", "ريالين", "جنيهين", "جنهين", "دينارين", "دولارين", "ليرتين"
+    )
+
+    private val unitWords = setOf(
+        "واحد", "واحدة", "أحد", "احد", "إحدى", "احدى",
+        "اثنين", "إثنين", "اتنين", "إتنين", "تنين", "اثنان", "إثنان", "اثني", "إثني", "اثنا", "إثنا", "اتنان",
+        "ثلاث", "تلات", "ثلاثة", "تلاتة", "تلاته", "ثلاثه",
+        "أربع", "اربع", "أربعة", "اربعة", "اربعه",
+        "خمس", "خمسة", "خمسه",
+        "ست", "ستة", "سته",
+        "سبع", "سبعة", "سبعه",
+        "ثمان", "تمان", "ثمانية", "تمانية", "ثمانيه", "تمانيه",
+        "تسع", "تسعة", "تسعه"
+    )
+
+    private val tensWords = setOf(
+        "عشرين", "عشرون", "ثلاثين", "ثلاثون", "تلاتين",
+        "أربعين", "أربعون", "اربعين", "اربعون", "خمسين", "خمسون",
+        "ستين", "ستون", "سبعين", "سبعون", "ثمانين", "ثمانون", "تمانين", "تمانون",
+        "تسعين", "تسعون"
+    )
+
+    private val hundredsWords = setOf(
+        "مية", "ميه", "ميت", "مائة", "مئة", "ميتين", "مائتين", "مئتين",
+        "ثلاثمية", "ثلاثميت", "تلاتمية", "تلاتميت", "تلاتميه", "ثلاثمائة",
+        "أربعمية", "أربعميت", "اربعمية", "اربعميت", "اربعميه", "أربعمائة",
+        "خمسمية", "خمسميت", "خمسميه", "خمسمائة", "خمسمئة",
+        "ستمية", "ستميت", "ستميه", "ستمائة",
+        "سبعمية", "سبعميت", "سبعميه", "سبعمائة",
+        "ثمانمية", "ثمانميت", "تمانمية", "تمانميت", "تمانميه", "ثمانمائة",
+        "تسعمية", "تسعميت", "تسعميه", "تسعمائة"
+    )
+
+    private val thousandsWords = setOf("ألف", "الف", "ألفين", "الفين", "آلاف", "الاف", "ألاف", "تلاف", "تآلاف")
+    private val fractionWords = setOf("نص", "نصف", "ربع")
+
+    /**
+     * Checks if a dual currency noun represents 2 units (e.g., "شيكلين" -> 2.0).
+     */
+    fun parseDualCurrencyAmount(token: String): Double? {
+        val clean = token.removePrefix("ب").removePrefix("و").trim()
+        return if (dualCurrencyTokens.contains(clean)) 2.0 else null
+    }
+
+    /**
+     * Determines whether `prevRaw` + "و" + `nextRaw` represents a single compound Arabic number
+     * (e.g., "مية وخمسين", "خمسة وعشرين", "ألفين وميتين", "مية ونص") rather than two distinct expense amounts
+     * (e.g., "خمسين ومية" or "50 و 20").
+     */
+    fun isValidCompoundJoin(prevRaw: String, nextRaw: String): Boolean {
+        val prev = prevRaw.removePrefix("ب").removePrefix("و").trim()
+        val next = nextRaw.removePrefix("ب").removePrefix("و").trim()
+
+        val prevIsDigits = prev.isNotEmpty() && prev.all { it.isDigit() || it == '.' }
+        val nextIsDigits = next.isNotEmpty() && next.all { it.isDigit() || it == '.' }
+
+        // Digits joined by "و" (e.g., "50 و 20" or "50 ومية") are always separate items
+        if (prevIsDigits || nextIsDigits) return false
+
+        val prevRank = getNumberPlaceRank(prev)
+        val nextRank = getNumberPlaceRank(next)
+        if (prevRank < 0 || nextRank < 0) return false
+
+        // Descending magnitude: thousands -> hundreds/tens/units/fraction, hundreds -> tens/units/fraction, tens -> fraction
+        if (prevRank > nextRank) return true
+
+        // Special Arabic syntax: units (1-9) precede tens (20-90), e.g., "خمسة وعشرين"
+        if (unitWords.contains(prev) && tensWords.contains(next)) return true
+
+        return false
+    }
+
+    private fun getNumberPlaceRank(cleanToken: String): Int = when {
+        thousandsWords.contains(cleanToken) -> 4
+        hundredsWords.contains(cleanToken) -> 3
+        tensWords.contains(cleanToken) -> 2
+        unitWords.contains(cleanToken) || wordToNumberMap.containsKey(cleanToken) -> 1
+        fractionWords.contains(cleanToken) -> 0
+        else -> -1
+    }
 
     /**
      * Converts Eastern Arabic-Indic numerals to ASCII digits.

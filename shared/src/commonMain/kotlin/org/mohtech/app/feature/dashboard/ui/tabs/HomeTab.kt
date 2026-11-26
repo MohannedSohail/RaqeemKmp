@@ -55,6 +55,7 @@ fun HomeTab(
     onRequestRepeat: (ExpenseItem) -> Unit,
     onChangeCategory: (ExpenseItem, ExpenseCategory) -> Unit,
     onOpenReceivables: () -> Unit = {},
+    onViewReceipt: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val top5Expenses = remember(state.recentExpenses) {
@@ -149,6 +150,7 @@ fun HomeTab(
                     onRequestDelete = onRequestDelete,
                     onRequestRepeat = onRequestRepeat,
                     onChangeCategory = onChangeCategory,
+                    onViewReceipt = onViewReceipt,
                     modifier = Modifier.animateItem()
                 )
             }

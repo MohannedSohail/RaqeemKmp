@@ -123,6 +123,18 @@ class TranscriptNormalizerTest {
                 name = "Ambiguous word untouched: كتاب جديد",
                 input = "اشتريت كتاب جديد",
                 expectedOutput = "اشتريت كتاب جديد"
+            ),
+            // 19. Whisper typo fixes for colloquial dialect terms
+            NormalizerTestCase(
+                name = "Whisper typo: بنزن ب 50 شايكل -> بنزين ب 50 شيكل",
+                input = "بنزن ب 50 شايكل",
+                expectedOutput = "بنزين ب 50 شيكل"
+            ),
+            // 20. Whisper typo fixes for dining & market
+            NormalizerTestCase(
+                name = "Whisper typo: كبوتشينو في سبرماركت -> كابتشينو في سوبرماركت",
+                input = "كبوتشينو في سبرماركت",
+                expectedOutput = "كابتشينو في سوبرماركت"
             )
         )
 

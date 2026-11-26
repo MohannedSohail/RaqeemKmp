@@ -82,6 +82,13 @@ data class BankSmsProof(
 )
 
 @Serializable
+enum class ExpenseRecordType {
+    PERSONAL,
+    RECEIVABLE,
+    PAYABLE
+}
+
+@Serializable
 data class ExpenseItem(
     val id: String,
     val title: String,
@@ -97,10 +104,12 @@ data class ExpenseItem(
     val myShare: Double? = null,
     val receiptPhotoPath: String? = null,
     val refNo: Long = 0L,
-    val deletedAt: Long? = null
+    val deletedAt: Long? = null,
+    val recordType: ExpenseRecordType = ExpenseRecordType.PERSONAL,
+    val splitGroupId: String? = null
 ) {
     val effectiveAmount: Double
-        get() = myShare ?: amount
+        get() = if (recordType == ExpenseRecordType.RECEIVABLE) 0.0 else (myShare ?: amount)
 }
 
 @Serializable

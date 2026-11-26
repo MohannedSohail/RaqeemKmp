@@ -33,13 +33,18 @@ class AndroidRawAudioRecorder(
     private val isRecordingState = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
     private var recordingThread: Thread? = null
-    private val pcmBuffer = mutableListOf<Short>()
+    private val pcmChunks = mutableListOf<ShortArray>()
     private val bufferLock = Any()
 
     override fun startRecording(
         onAmplitudeChanged: (Float) -> Unit,
         onError: (SpeechError) -> Unit
     ) {
+        if (!isRecordingState.compareAndSet(false, true)) {
+            // Already recording; ignore redundant start to prevent hardware contention
+            return
+        }
+
         val appContext = context ?: AndroidContextHolder.context
         if (appContext != null &&
             ContextCompat.checkSelfPermission(
@@ -47,6 +52,7 @@ class AndroidRawAudioRecorder(
                 Manifest.permission.RECORD_AUDIO
             ) != PackageManager.PERMISSION_GRANTED
         ) {
+            isRecordingState.set(false)
             onError(SpeechError.PermissionDenied)
             return
         }
@@ -59,6 +65,7 @@ class AndroidRawAudioRecorder(
             )
 
             if (minBufferSize == AudioRecord.ERROR || minBufferSize == AudioRecord.ERROR_BAD_VALUE) {
+                isRecordingState.set(false)
                 onError(SpeechError.AudioCapture)
                 return
             }
@@ -74,15 +81,15 @@ class AndroidRawAudioRecorder(
 
             if (record.state != AudioRecord.STATE_INITIALIZED) {
                 record.release()
+                isRecordingState.set(false)
                 onError(SpeechError.AudioCapture)
                 return
             }
 
             audioRecord = record
             synchronized(bufferLock) {
-                pcmBuffer.clear()
+                pcmChunks.clear()
             }
-            isRecordingState.set(true)
             record.startRecording()
 
             recordingThread = thread(name = "Raqeem-AudioRecord-Thread") {
@@ -91,11 +98,13 @@ class AndroidRawAudioRecorder(
                     while (isRecordingState.get()) {
                         val readCount = record.read(readBuffer, 0, readBuffer.size)
                         if (readCount > 0) {
-                            val chunk = if (readCount == readBuffer.size) readBuffer else readBuffer.copyOf(readCount)
+                            val chunk = if (readCount == readBuffer.size) {
+                                readBuffer.clone()
+                            } else {
+                                readBuffer.copyOf(readCount)
+                            }
                             synchronized(bufferLock) {
-                                for (i in 0 until readCount) {
-                                    pcmBuffer.add(readBuffer[i])
-                                }
+                                pcmChunks.add(chunk)
                             }
                             val rms = AudioProcessor.calculateRmsAmplitude(chunk)
                             onAmplitudeChanged(rms)
@@ -113,8 +122,14 @@ class AndroidRawAudioRecorder(
                 }
             }
         } catch (_: SecurityException) {
+            isRecordingState.set(false)
+            try { audioRecord?.release() } catch (_: Throwable) {}
+            audioRecord = null
             onError(SpeechError.PermissionDenied)
         } catch (_: Throwable) {
+            isRecordingState.set(false)
+            try { audioRecord?.release() } catch (_: Throwable) {}
+            audioRecord = null
             onError(SpeechError.AudioCapture)
         }
     }
@@ -124,12 +139,6 @@ class AndroidRawAudioRecorder(
         try {
             audioRecord?.stop()
         } catch (_: Throwable) {
-        } finally {
-            try {
-                audioRecord?.release()
-            } catch (_: Throwable) {
-            }
-            audioRecord = null
         }
 
         try {
@@ -139,8 +148,27 @@ class AndroidRawAudioRecorder(
             recordingThread = null
         }
 
+        try {
+            audioRecord?.release()
+        } catch (_: Throwable) {
+        } finally {
+            audioRecord = null
+        }
+
         return synchronized(bufferLock) {
-            if (pcmBuffer.isEmpty()) null else pcmBuffer.toShortArray()
+            if (pcmChunks.isEmpty()) {
+                null
+            } else {
+                val totalSamples = pcmChunks.sumOf { it.size }
+                val fullPcm = ShortArray(totalSamples)
+                var offset = 0
+                for (chunk in pcmChunks) {
+                    chunk.copyInto(fullPcm, destinationOffset = offset)
+                    offset += chunk.size
+                }
+                pcmChunks.clear()
+                fullPcm
+            }
         }
     }
 
@@ -151,12 +179,6 @@ class AndroidRawAudioRecorder(
         try {
             audioRecord?.stop()
         } catch (_: Throwable) {
-        } finally {
-            try {
-                audioRecord?.release()
-            } catch (_: Throwable) {
-            }
-            audioRecord = null
         }
         try {
             recordingThread?.join(300)
@@ -164,8 +186,14 @@ class AndroidRawAudioRecorder(
         } finally {
             recordingThread = null
         }
+        try {
+            audioRecord?.release()
+        } catch (_: Throwable) {
+        } finally {
+            audioRecord = null
+        }
         synchronized(bufferLock) {
-            pcmBuffer.clear()
+            pcmChunks.clear()
         }
     }
 }
@@ -180,16 +208,31 @@ class AndroidLocalSpeechTranscriber(
 ) : LocalSpeechTranscriber {
 
     companion object {
+        @Volatile
         private var isNativeLibraryLoaded = false
-        init {
-            try {
-                System.loadLibrary("whisper")
-                isNativeLibraryLoaded = true
-            } catch (_: UnsatisfiedLinkError) {
-                isNativeLibraryLoaded = false
-            } catch (_: Throwable) {
-                isNativeLibraryLoaded = false
+        private var hasAttemptedLoad = false
+        private val modelExtractionLock = Any()
+        const val MIN_MODEL_SIZE_BYTES = 10_000_000L // GGML tiny is ~31MB
+
+        fun ensureNativeLibraryLoaded(): Boolean {
+            if (isNativeLibraryLoaded) return true
+            synchronized(this) {
+                if (isNativeLibraryLoaded) return true
+                try {
+                    System.loadLibrary("whisper")
+                    isNativeLibraryLoaded = true
+                } catch (_: UnsatisfiedLinkError) {
+                    isNativeLibraryLoaded = false
+                } catch (_: Throwable) {
+                    isNativeLibraryLoaded = false
+                }
+                hasAttemptedLoad = true
+                return isNativeLibraryLoaded
             }
+        }
+
+        init {
+            ensureNativeLibraryLoaded()
         }
     }
 
@@ -214,66 +257,117 @@ class AndroidLocalSpeechTranscriber(
         if (!modelsDir.exists()) {
             modelsDir.mkdirs()
         }
-        val candidate = File(modelsDir, fileName)
-        if (candidate.exists() && candidate.isFile && candidate.length() > 1000) return candidate
 
-        // Auto-extract model bundled inside APK assets (for Google Play distribution)
-        val assetPaths = listOf("models/$fileName", fileName, "models/ggml-tiny.bin", "ggml-tiny.bin")
-        for (assetPath in assetPaths) {
-            try {
-                val tempFile = File(modelsDir, "$fileName.tmp")
-                appContext.assets.open(assetPath).use { input ->
-                    tempFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                if (tempFile.exists() && tempFile.length() > 1000) {
-                    if (candidate.exists()) candidate.delete()
-                    if (tempFile.renameTo(candidate) && candidate.exists()) {
-                        android.util.Log.i("AndroidWhisper", "Successfully extracted model $fileName from assets ($assetPath)")
-                        return candidate
-                    }
-                }
-            } catch (_: Throwable) {
-                // Asset path not found or extraction skipped, try next
+        // Check if candidate or alternative tiny models already exist on disk
+        val candidate = File(modelsDir, fileName)
+        val candidatesToCheck = listOf(
+            candidate,
+            File(modelsDir, "ggml-tiny-q5_1.bin"),
+            File(modelsDir, "ggml-tiny.bin")
+        )
+        for (cand in candidatesToCheck) {
+            if (cand.exists() && cand.isFile && cand.length() >= MIN_MODEL_SIZE_BYTES) {
+                return cand
             }
         }
 
-        val rootCandidate = File(appContext.filesDir, fileName)
-        if (rootCandidate.exists() && rootCandidate.isFile && rootCandidate.length() > 1000) return rootCandidate
-        val extDir = appContext.getExternalFilesDir("models")
-        if (extDir != null) {
-            val extCandidate = File(extDir, fileName)
-            if (extCandidate.exists() && extCandidate.isFile && extCandidate.length() > 1000) return extCandidate
+        // Synchronize extraction so concurrent threads do not conflict
+        synchronized(modelExtractionLock) {
+            // Re-check after acquiring lock in case another thread already extracted it
+            for (cand in candidatesToCheck) {
+                if (cand.exists() && cand.isFile && cand.length() >= MIN_MODEL_SIZE_BYTES) {
+                    return cand
+                }
+            }
+
+            // Auto-extract model bundled inside APK assets (for Google Play distribution)
+            val assetPaths = linkedSetOf(
+                "models/$fileName",
+                fileName,
+                "models/ggml-tiny-q5_1.bin",
+                "ggml-tiny-q5_1.bin",
+                "models/ggml-tiny.bin",
+                "ggml-tiny.bin"
+            )
+            for (assetPath in assetPaths) {
+                val tempFile = File(modelsDir, "$fileName.${System.currentTimeMillis()}.${(1000..9999).random()}.tmp")
+                try {
+                    appContext.assets.open(assetPath).use { input ->
+                        tempFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    if (tempFile.exists() && tempFile.length() >= MIN_MODEL_SIZE_BYTES) {
+                        if (candidate.exists()) candidate.delete()
+                        val renameSuccess = tempFile.renameTo(candidate)
+                        if (!renameSuccess || !candidate.exists()) {
+                            tempFile.copyTo(candidate, overwrite = true)
+                        }
+                        if (candidate.exists() && candidate.length() >= MIN_MODEL_SIZE_BYTES) {
+                            android.util.Log.i("AndroidWhisper", "Successfully extracted model from assets ($assetPath)")
+                            return candidate
+                        }
+                    }
+                } catch (_: Throwable) {
+                    // Asset path not found or extraction skipped, try next
+                } finally {
+                    try {
+                        if (tempFile.exists()) tempFile.delete()
+                    } catch (_: Throwable) {}
+                }
+            }
+
+            val rootCandidate = File(appContext.filesDir, fileName)
+            if (rootCandidate.exists() && rootCandidate.isFile && rootCandidate.length() >= MIN_MODEL_SIZE_BYTES) return rootCandidate
+            val extDir = appContext.getExternalFilesDir("models")
+            if (extDir != null) {
+                val extCandidate = File(extDir, fileName)
+                if (extCandidate.exists() && extCandidate.isFile && extCandidate.length() >= MIN_MODEL_SIZE_BYTES) return extCandidate
+            }
+            return null
         }
-        return null
     }
 
     override fun isModelReady(): Boolean {
-        if (!isNativeLibraryLoaded) return false
+        if (!isNativeLibraryLoaded && !ensureNativeLibraryLoaded()) return false
         val appContext = context ?: AndroidContextHolder.context ?: return false
         val modelsDir = File(appContext.filesDir, "models")
         val candidateQ5 = File(modelsDir, "ggml-tiny-q5_1.bin")
         val candidateTiny = File(modelsDir, "ggml-tiny.bin")
-        if ((candidateQ5.exists() && candidateQ5.length() > 1000) ||
-            (candidateTiny.exists() && candidateTiny.length() > 1000)
+        if ((candidateQ5.exists() && candidateQ5.length() >= MIN_MODEL_SIZE_BYTES) ||
+            (candidateTiny.exists() && candidateTiny.length() >= MIN_MODEL_SIZE_BYTES)
         ) {
             return true
         }
 
-        return try {
-            val assetsList = appContext.assets.list("models") ?: emptyArray()
-            assetsList.contains("ggml-tiny-q5_1.bin") || assetsList.contains("ggml-tiny.bin")
-        } catch (_: Throwable) {
-            false
+        val assetCandidates = listOf(
+            "models/ggml-tiny-q5_1.bin",
+            "ggml-tiny-q5_1.bin",
+            "models/ggml-tiny.bin",
+            "ggml-tiny.bin"
+        )
+        for (path in assetCandidates) {
+            try {
+                appContext.assets.open(path).use {
+                    // Pre-extract in background so first user recording encounters zero latency
+                    thread(name = "Raqeem-Model-Extractor", isDaemon = true) {
+                        try {
+                            getModelFile("ggml-tiny-q5_1.bin")
+                        } catch (_: Throwable) {}
+                    }
+                    return true
+                }
+            } catch (_: Throwable) {
+            }
         }
+        return false
     }
 
     override fun getInstalledModels(): List<InstalledModel> {
         val defaultModel = "ggml-tiny-q5_1.bin"
         val appContext = context ?: AndroidContextHolder.context
         val modelFile = appContext?.let { File(File(it.filesDir, "models"), defaultModel) }
-        val isInstalled = modelFile != null && modelFile.exists() && modelFile.length() > 1000
+        val isInstalled = modelFile != null && modelFile.exists() && modelFile.length() >= MIN_MODEL_SIZE_BYTES
         val size = if (isInstalled && modelFile != null) modelFile.length() else 31_000_000L
         return listOf(
             InstalledModel(
@@ -300,10 +394,10 @@ class AndroidLocalSpeechTranscriber(
         val vadResult = vad.process(pcm16kMono)
         val activePcm = when (vadResult) {
             is org.mohtech.app.ai.audio.VadResult.Speech -> vadResult.trimmedPcm
-            is org.mohtech.app.ai.audio.VadResult.NoSpeech -> return@withContext TranscribeResult.Failure(SpeechError.EmptyResult)
+            is org.mohtech.app.ai.audio.VadResult.NoSpeech -> pcm16kMono
         }
 
-        if (!isNativeLibraryLoaded) {
+        if (!isNativeLibraryLoaded && !ensureNativeLibraryLoaded()) {
             return@withContext TranscribeResult.Failure(SpeechError.ModelMissing)
         }
 
@@ -333,14 +427,20 @@ class AndroidLocalSpeechTranscriber(
 
             for (chunk in chunks) {
                 val floatPcm = FloatArray(chunk.size) { i -> chunk[i].toFloat() / 32768.0f }
-                val segmentText = fullTranscribe(
-                    contextPtr = ctxPtr,
-                    numThreads = config.numThreads,
-                    pcm = floatPcm,
-                    prompt = config.initialPrompt,
-                    language = config.language,
-                    translate = config.translate
-                )
+                val segmentText = synchronized(contextLock) {
+                    if (activeContextPtr == 0L) {
+                        ""
+                    } else {
+                        fullTranscribe(
+                            contextPtr = activeContextPtr,
+                            numThreads = config.numThreads,
+                            pcm = floatPcm,
+                            prompt = config.initialPrompt,
+                            language = config.language,
+                            translate = config.translate
+                        )
+                    }
+                }
                 if (segmentText.isNotBlank()) {
                     if (textBuilder.isNotEmpty()) textBuilder.append(" ")
                     textBuilder.append(segmentText.trim())

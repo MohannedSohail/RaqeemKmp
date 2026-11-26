@@ -61,6 +61,7 @@ fun HistoryTab(
     onRequestDelete: (ExpenseItem) -> Unit,
     onRequestRepeat: (ExpenseItem) -> Unit,
     onChangeCategory: (ExpenseItem, ExpenseCategory) -> Unit,
+    onViewReceipt: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val timeZone = TimeZone.currentSystemDefault()
@@ -231,6 +232,7 @@ fun HistoryTab(
                         onRequestDelete = onRequestDelete,
                         onRequestRepeat = onRequestRepeat,
                         onChangeCategory = onChangeCategory,
+                        onViewReceipt = onViewReceipt,
                         modifier = Modifier.animateItem()
                     )
                 }

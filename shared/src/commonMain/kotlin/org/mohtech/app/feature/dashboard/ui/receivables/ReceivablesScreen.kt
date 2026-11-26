@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +67,7 @@ import org.mohtech.app.core.theme.RaqeemColors
 import org.mohtech.app.core.ui.BackHandler
 import org.mohtech.app.core.ui.RaqeemIcons
 import org.mohtech.app.data.accounting.AllocationComputation
+import org.mohtech.app.data.accounting.Money
 import org.mohtech.app.data.accounting.PartyBalanceSummary
 import org.mohtech.app.data.accounting.ReceivablesLedger
 import org.mohtech.app.data.model.DebtStatus
@@ -72,6 +75,9 @@ import org.mohtech.app.data.model.ExpenseItem
 import org.mohtech.app.feature.dashboard.ExpenseIntent
 import org.mohtech.app.feature.dashboard.ExpenseUiState
 import org.mohtech.app.feature.dashboard.ExpenseViewModel
+import org.mohtech.app.feature.dashboard.ui.ReceiptPreviewDialog
+import org.mohtech.app.feature.dashboard.ui.formatDraftAmount
+import org.mohtech.app.feature.dashboard.ui.parseLocalizedAmount
 import org.mohtech.app.feature.reports.AccountingReportUtil
 
 enum class ReceivablesFilter(val title: String) {
@@ -79,6 +85,54 @@ enum class ReceivablesFilter(val title: String) {
     OPEN("قيد التحصيل"),
     SETTLED("مسدد بالكامل")
 }
+
+/**
+ * Currency-scoped party selection key so multi-currency balances for the same party
+ * remain strictly isolated across PartyDetailView and SettleAllDialog.
+ */
+data class SelectedPartyTarget(
+    val partyId: String,
+    val partyName: String,
+    val currency: String
+)
+
+private val SelectedPartyTargetSaver = listSaver<SelectedPartyTarget?, String>(
+    save = { target ->
+        if (target == null) emptyList() else listOf(target.partyId, target.partyName, target.currency)
+    },
+    restore = { list ->
+        if (list.size == 3) SelectedPartyTarget(list[0], list[1], list[2]) else null
+    }
+)
+
+internal fun AllocationComputation.matchesPartyTarget(target: SelectedPartyTarget): Boolean {
+    if (currency != target.currency) return false
+    val compKey = party.id.ifBlank { party.name }
+    val targetKey = target.partyId.ifBlank { target.partyName }
+    return compKey == targetKey || (party.name == target.partyName && target.partyId.isBlank())
+}
+
+fun filterComputationsForParty(
+    expenses: List<ExpenseItem>,
+    target: SelectedPartyTarget
+): List<AllocationComputation> = ReceivablesLedger.getAllocationComputations(expenses)
+    .filter { it.matchesPartyTarget(target) }
+
+fun computePartyRemainingForTarget(
+    computations: List<AllocationComputation>,
+    target: SelectedPartyTarget
+): Double {
+    val minorSum = computations
+        .filter { it.isOwedToMe && it.matchesPartyTarget(target) }
+        .sumOf { Money.doubleToMinor(it.remainingAmount, it.currency) }
+    return Money.minorToDouble(minorSum, target.currency)
+}
+
+fun filterOpenSettleAllComputations(
+    expenses: List<ExpenseItem>,
+    target: SelectedPartyTarget
+): List<AllocationComputation> = ReceivablesLedger.getAllocationComputations(expenses)
+    .filter { it.matchesPartyTarget(target) && it.remainingAmount > 0.0 && it.isOwedToMe }
 
 /**
  * ReceivablesScreen:
@@ -98,18 +152,21 @@ fun ReceivablesScreen(
     modifier: Modifier = Modifier
 ) {
     val haptics = LocalRaqeemHaptics.current
-    var selectedPartyName by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedParty by rememberSaveable(stateSaver = SelectedPartyTargetSaver) {
+        mutableStateOf<SelectedPartyTarget?>(null)
+    }
     var activeFilter by rememberSaveable { mutableStateOf(ReceivablesFilter.ALL) }
 
     // Settlement Bottom Sheet state
     var pendingSettlementTarget by remember { mutableStateOf<AllocationComputation?>(null) }
     var voidSettlementTarget by remember { mutableStateOf<Pair<String, String>?>(null) } // expenseId, settlementId
     var showSettleAllConfirm by remember { mutableStateOf(false) }
+    var previewReceiptUri by remember { mutableStateOf<String?>(null) }
 
     // Intercept back button: if a person detail is open, return to list; otherwise exit screen
     BackHandler(enabled = true) {
-        if (selectedPartyName != null) {
-            selectedPartyName = null
+        if (selectedParty != null) {
+            selectedParty = null
         } else {
             onBack()
         }
@@ -127,10 +184,10 @@ fun ReceivablesScreen(
         ) {
             // Top Bar
             ReceivablesTopBar(
-                selectedPartyName = selectedPartyName,
+                selectedParty = selectedParty,
                 onBack = {
-                    if (selectedPartyName != null) {
-                        selectedPartyName = null
+                    if (selectedParty != null) {
+                        selectedParty = null
                     } else {
                         onBack()
                     }
@@ -145,22 +202,22 @@ fun ReceivablesScreen(
                 thickness = 1.dp
             )
 
-            if (selectedPartyName == null) {
+            val currentParty = selectedParty
+            if (currentParty == null) {
                 // View 1: List of all debtors / shared expense parties
                 PartiesListView(
-                    expenses = state.recentExpenses,
+                    expenses = state.receivableExpenses,
                     activeCurrency = state.activeCurrency,
-                    onSelectParty = { partyName ->
+                    onSelectParty = { target ->
                         haptics.perform(HapticKind.TICK)
-                        selectedPartyName = partyName
+                        selectedParty = target
                     }
                 )
             } else {
-                // View 2: Detailed person allocations list
+                // View 2: Detailed person allocations list (strictly scoped by party & currency)
                 PartyDetailView(
-                    partyName = selectedPartyName!!,
-                    expenses = state.recentExpenses,
-                    activeCurrency = state.activeCurrency,
+                    selectedParty = currentParty,
+                    expenses = state.receivableExpenses,
                     activeFilter = activeFilter,
                     onFilterChange = { activeFilter = it },
                     onCheckSettlement = { comp ->
@@ -174,6 +231,9 @@ fun ReceivablesScreen(
                     onRequestSettleAll = {
                         haptics.perform(HapticKind.TICK)
                         showSettleAllConfirm = true
+                    },
+                    onViewReceipt = { uri ->
+                        previewReceiptUri = uri
                     }
                 )
             }
@@ -216,13 +276,13 @@ fun ReceivablesScreen(
             )
         }
 
-        // Settle All Confirmation Dialog
-        if (showSettleAllConfirm && selectedPartyName != null) {
+        // Settle All Confirmation Dialog (strictly scoped to selected party + currency)
+        val settleAllParty = selectedParty
+        if (showSettleAllConfirm && settleAllParty != null) {
             SettleAllDialog(
-                partyName = selectedPartyName!!,
+                selectedParty = settleAllParty,
                 onConfirm = {
-                    val openItems = ReceivablesLedger.getAllocationComputations(state.recentExpenses)
-                        .filter { it.party.name == selectedPartyName && it.remainingAmount > 0.0 && it.isOwedToMe }
+                    val openItems = filterOpenSettleAllComputations(state.receivableExpenses, settleAllParty)
                     val now = Clock.System.now().toEpochMilliseconds()
 
                     openItems.forEach { item ->
@@ -241,12 +301,19 @@ fun ReceivablesScreen(
                 onDismiss = { showSettleAllConfirm = false }
             )
         }
+
+        previewReceiptUri?.let { uri ->
+            ReceiptPreviewDialog(
+                fileUri = uri,
+                onDismiss = { previewReceiptUri = null }
+            )
+        }
     }
 }
 
 @Composable
 private fun ReceivablesTopBar(
-    selectedPartyName: String?,
+    selectedParty: SelectedPartyTarget?,
     onBack: () -> Unit,
     onExportExcel: () -> Unit
 ) {
@@ -263,7 +330,7 @@ private fun ReceivablesTopBar(
         ) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(RaqeemColors.SurfaceCard)
                     .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
@@ -274,7 +341,11 @@ private fun ReceivablesTopBar(
             }
 
             Text(
-                text = if (selectedPartyName != null) "مستحقات $selectedPartyName" else "سجل المستحقات والديون",
+                text = if (selectedParty != null) {
+                    "مستحقات ${selectedParty.partyName} (${selectedParty.currency})"
+                } else {
+                    "سجل المستحقات والديون"
+                },
                 color = RaqeemColors.TextPrimary,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold
@@ -311,7 +382,7 @@ private fun ReceivablesTopBar(
 private fun PartiesListView(
     expenses: List<ExpenseItem>,
     activeCurrency: String,
-    onSelectParty: (String) -> Unit
+    onSelectParty: (SelectedPartyTarget) -> Unit
 ) {
     val summaries = remember(expenses) {
         ReceivablesLedger.getPartySummaries(expenses)
@@ -337,10 +408,22 @@ private fun PartiesListView(
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(summaries, key = { "${it.party.name}_${it.currency}" }) { sum ->
+        items(
+            items = summaries,
+            key = { "${it.party.id.ifBlank { it.party.name }}_${it.party.name}_${it.currency}" },
+            contentType = { "party_summary" }
+        ) { sum ->
             PartySummaryCard(
                 summary = sum,
-                onClick = { onSelectParty(sum.party.name) }
+                onClick = {
+                    onSelectParty(
+                        SelectedPartyTarget(
+                            partyId = sum.party.id.ifBlank { sum.party.name },
+                            partyName = sum.party.name,
+                            currency = sum.currency
+                        )
+                    )
+                }
             )
         }
         item {
@@ -377,8 +460,10 @@ private fun PartySummaryCard(
                 )
 
                 val balanceText = when {
-                    summary.netBalance > 0.0 -> "لك عنده ${summary.netBalance} ${summary.currency}"
-                    summary.netBalance < 0.0 -> "له عندك ${-summary.netBalance} ${summary.currency}"
+                    summary.netBalance > 0.0 ->
+                        "لك عنده ${formatDraftAmount(summary.netBalance, summary.currency)} ${summary.currency}"
+                    summary.netBalance < 0.0 ->
+                        "له عندك ${formatDraftAmount(-summary.netBalance, summary.currency)} ${summary.currency}"
                     else -> "الحساب متطابق (خالص)"
                 }
                 val balanceColor = when {
@@ -396,12 +481,12 @@ private fun PartySummaryCard(
 
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "المسدد: ${summary.totalSettledToMe} ${summary.currency}",
+                    text = "المسدد: ${formatDraftAmount(summary.totalSettledToMe, summary.currency)} ${summary.currency}",
                     color = RaqeemColors.TextSecondary,
                     fontSize = 12.sp
                 )
                 Text(
-                    text = "من إجمالي: ${summary.totalReceivable} ${summary.currency}",
+                    text = "من إجمالي: ${formatDraftAmount(summary.totalReceivable, summary.currency)} ${summary.currency}",
                     color = RaqeemColors.TextTertiary,
                     fontSize = 11.sp
                 )
@@ -412,18 +497,19 @@ private fun PartySummaryCard(
 
 @Composable
 private fun PartyDetailView(
-    partyName: String,
+    selectedParty: SelectedPartyTarget,
     expenses: List<ExpenseItem>,
-    activeCurrency: String,
     activeFilter: ReceivablesFilter,
     onFilterChange: (ReceivablesFilter) -> Unit,
     onCheckSettlement: (AllocationComputation) -> Unit,
     onUncheckSettlement: (expenseId: String, settlementId: String) -> Unit,
-    onRequestSettleAll: () -> Unit
+    onRequestSettleAll: () -> Unit,
+    onViewReceipt: (String) -> Unit
 ) {
-    val allPartyComputations = remember(expenses, partyName) {
-        ReceivablesLedger.getAllocationComputations(expenses)
-            .filter { it.party.name == partyName }
+    val expensesById = remember(expenses) { expenses.associateBy { it.id } }
+
+    val allPartyComputations = remember(expenses, selectedParty) {
+        filterComputationsForParty(expenses, selectedParty)
     }
 
     val filtered = remember(allPartyComputations, activeFilter) {
@@ -434,7 +520,10 @@ private fun PartyDetailView(
         }
     }
 
-    val totalRemaining = allPartyComputations.filter { it.isOwedToMe }.sumOf { it.remainingAmount }
+    val targetCurrency = selectedParty.currency
+    val totalRemaining = remember(allPartyComputations, selectedParty) {
+        computePartyRemainingForTarget(allPartyComputations, selectedParty)
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -465,7 +554,7 @@ private fun PartyDetailView(
                             fontSize = 12.sp
                         )
                         Text(
-                            text = "$totalRemaining $activeCurrency",
+                            text = "${formatDraftAmount(totalRemaining, targetCurrency)} $targetCurrency",
                             color = if (totalRemaining > 0.0) RaqeemColors.EmeraldGreen else RaqeemColors.TextPrimary,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold
@@ -495,7 +584,7 @@ private fun PartyDetailView(
         // Filter Chips
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(ReceivablesFilter.entries) { filter ->
+                items(ReceivablesFilter.entries, key = { it.name }) { filter ->
                     val isSelected = filter == activeFilter
                     Box(
                         modifier = Modifier
@@ -536,9 +625,16 @@ private fun PartyDetailView(
                 }
             }
         } else {
-            items(filtered, key = { it.allocationId }) { comp ->
+            items(
+                items = filtered,
+                key = { "${it.expenseId}_${it.allocationId}" },
+                contentType = { "allocation_detail_row" }
+            ) { comp ->
+                val receiptUri = expensesById[comp.expenseId]?.receiptPhotoPath?.takeIf { it.isNotBlank() }
                 AllocationDetailRow(
                     computation = comp,
+                    receiptPhotoPath = receiptUri,
+                    onViewReceipt = onViewReceipt,
                     onCheck = { onCheckSettlement(comp) },
                     onUncheck = {
                         val activeSettlement = comp.settlements.lastOrNull { it.voidedAt == null }
@@ -559,6 +655,8 @@ private fun PartyDetailView(
 @Composable
 private fun AllocationDetailRow(
     computation: AllocationComputation,
+    receiptPhotoPath: String? = null,
+    onViewReceipt: ((String) -> Unit)? = null,
     onCheck: () -> Unit,
     onUncheck: () -> Unit
 ) {
@@ -632,7 +730,7 @@ private fun AllocationDetailRow(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "المستحق: ${computation.totalAmount} ${computation.currency} (المسدد: ${computation.settledAmount})",
+                        text = "المستحق: ${formatDraftAmount(computation.totalAmount, computation.currency)} ${computation.currency} (المسدد: ${formatDraftAmount(computation.settledAmount, computation.currency)})",
                         color = RaqeemColors.TextSecondary,
                         fontSize = 12.sp
                     )
@@ -644,7 +742,7 @@ private fun AllocationDetailRow(
                     }
                     val statusColor = when (computation.status) {
                         DebtStatus.OPEN -> RaqeemColors.CoralRose
-                        DebtStatus.PARTIAL -> Color(0xFFFFA000)
+                        DebtStatus.PARTIAL -> RaqeemColors.AmberWarning
                         DebtStatus.SETTLED -> RaqeemColors.EmeraldGreen
                     }
                     Text(
@@ -653,6 +751,36 @@ private fun AllocationDetailRow(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
+                }
+
+                if (receiptPhotoPath != null) {
+                    Box(
+                        modifier = Modifier
+                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(enabled = onViewReceipt != null) {
+                                onViewReceipt?.invoke(receiptPhotoPath)
+                            },
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(RaqeemColors.ElectricCyan.copy(alpha = 0.12f))
+                                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            RaqeemIcons.Receipt(size = 12.dp, tint = RaqeemColors.ElectricCyan)
+                            Text(
+                                text = "عرض الإيصال",
+                                color = RaqeemColors.ElectricCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
                 }
 
                 if (computation.lastSettledAt != null) {
@@ -677,7 +805,7 @@ private fun RecordSettlementBottomSheet(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var amountInput by rememberSaveable { mutableStateOf("${target.remainingAmount}") }
+    var amountInput by rememberSaveable { mutableStateOf(formatDraftAmount(target.remainingAmount, currency)) }
     var noteInput by rememberSaveable { mutableStateOf("") }
     val now = Clock.System.now().toEpochMilliseconds()
     var settledAtTimestamp by rememberSaveable { mutableStateOf(now) }
@@ -769,13 +897,13 @@ private fun RecordSettlementBottomSheet(
 
                 Button(
                     onClick = {
-                        val parsed = amountInput.toDoubleOrNull()
+                        val parsed = parseLocalizedAmount(amountInput)
                         if (parsed == null || parsed <= 0.0) {
                             errorMessage = "يرجى إدخال مبلغ صحيح أكبر من صفر"
                             return@Button
                         }
                         if (parsed > target.remainingAmount) {
-                            errorMessage = "المبلغ المطلوب ($parsed) يتجاوز المتبقي (${target.remainingAmount})"
+                            errorMessage = "المبلغ المطلوب (${formatDraftAmount(parsed, currency)}) يتجاوز المتبقي (${formatDraftAmount(target.remainingAmount, currency)})"
                             return@Button
                         }
                         onConfirm(parsed, settledAtTimestamp, noteInput)
@@ -860,7 +988,7 @@ private fun VoidSettlementDialog(
 
 @Composable
 private fun SettleAllDialog(
-    partyName: String,
+    selectedParty: SelectedPartyTarget,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -889,7 +1017,7 @@ private fun SettleAllDialog(
             )
 
             Text(
-                text = "هل أنت متأكد من تسديد كافة العمليات المفتوحة للطرف «$partyName» بتاريخ اليوم؟",
+                text = "هل أنت متأكد من تسديد كافة العمليات المفتوحة للطرف «${selectedParty.partyName} (${selectedParty.currency})» بتاريخ اليوم؟",
                 color = RaqeemColors.TextSecondary,
                 fontSize = 13.sp
             )

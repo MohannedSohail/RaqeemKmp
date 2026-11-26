@@ -28,19 +28,25 @@ class LocalDialectExpenseParser {
     }
 
     private val numberWordTokens = setOf(
-        "نص", "ربع", "واحد", "واحدة", "اثنين", "اتنين", "اثنان", "اثني", "اثنا", "إثنان", "إثني", "إثنا", "اتنان",
-        "ثلاث", "تلات", "ثلاثة", "تلاتة",
-        "أربع", "اربع", "أربعة", "اربعة", "خمس", "خمسة",
-        "ست", "ستة", "سبع", "سبعة", "ثمان", "تمان", "ثمانية", "تمانية", "تسع", "تسعة", "عشر", "عشرة",
+        "نص", "نصف", "ربع", "واحد", "واحدة", "اثنين", "اتنين", "تنين", "اثنان", "اثني", "اثنا", "إثنان", "إثني", "إثنا", "اتنان",
+        "ثلاث", "تلات", "ثلاثة", "تلاتة", "تلاته", "ثلاثه",
+        "أربع", "اربع", "أربعة", "اربعة", "اربعه", "خمس", "خمسة", "خمسه",
+        "ست", "ستة", "سته", "سبع", "سبعة", "سبعه", "ثمان", "تمان", "ثمانية", "تمانية", "تمانيه", "تسع", "تسعة", "تسعه",
+        "عشر", "عشرة", "عشره",
+        "احدعش", "حدعش", "حداعش", "حداشر", "اتناعش", "اتناشر", "تلطعش", "تلاتاشر", "اربعتعش", "اربعتاشر",
+        "خمستعش", "خمستاشر", "ستعش", "ستاشر", "سبعتعش", "سبعتاشر", "تمنتعش", "تمنتاشر", "تسعتعش", "تسعتاشر",
         "عشرين", "عشرون", "ثلاثين", "ثلاثون", "تلاتين", "أربعين", "أربعون", "اربعين", "اربعون",
         "خمسين", "خمسون", "ستين", "ستون", "سبعين", "سبعون", "ثمانين", "ثمانون", "تمانين", "تمانون", "تسعين", "تسعون",
-        "مية", "مائة", "مئة", "ميه", "ميتين", "مائتين", "مئتين", "ثلاثمية", "تلاتمية", "أربعمية", "اربعمية",
-        "خمسمية", "خمسمائة", "خمسمئة", "ستمية", "سبعمية", "ثمانمية", "تمانمية", "تسعمية",
-        "ألف", "الف", "ألفين", "الفين", "آلاف", "الاف"
+        "مية", "مائة", "مئة", "ميه", "ميت", "ميتين", "مائتين", "مئتين",
+        "ثلاثمية", "ثلاثميت", "تلاتمية", "تلاتميت", "تلاتميه", "أربعمية", "أربعميت", "اربعمية", "اربعميت", "اربعميه",
+        "خمسمية", "خمسميت", "خمسميه", "خمسمائة", "خمسمئة", "ستمية", "ستميت", "ستميه",
+        "سبعمية", "سبعميت", "سبعميه", "ثمانمية", "ثمانميت", "تمانمية", "تمانميت", "تمانميه", "تسعمية", "تسعميت", "تسعميه",
+        "ألف", "الف", "ألفين", "الفين", "آلاف", "الاف", "تلاف", "تآلاف"
     )
 
     private val currencyTokens = setOf(
-        "شيكل", "شواكل", "ريال", "ريالات", "جنيه", "جنيهات", "دولار", "دينار", "ILS", "SAR", "EGP", "USD"
+        "شيكل", "شواكل", "شيكلين", "ريال", "ريالات", "ريالين", "جنيه", "جنيهات", "جنيهين", "جنهين",
+        "دولار", "دولارين", "دينار", "دينارين", "ليرة", "ليرات", "ليرتين", "ILS", "SAR", "EGP", "USD", "JOD"
     )
 
     fun parseBankSms(smsBody: String, currentTimestamp: Long = 0L): BankSmsProof? {
@@ -107,11 +113,12 @@ class LocalDialectExpenseParser {
         currency: String,
         ts: Long
     ): ExpenseBatch? {
-        val hasMyShareKeyword = normalizedText.contains("إلي") || normalizedText.contains("لي") ||
-            normalizedText.contains("نصيبي") || normalizedText.contains("حصتي")
+        val wordsForKeywordCheck = normalizedText.split(Regex("[\\s,.:;!؟،]+")).toSet()
+        val hasMyShareKeyword = wordsForKeywordCheck.contains("إلي") || wordsForKeywordCheck.contains("لي") ||
+            wordsForKeywordCheck.contains("نصيبي") || wordsForKeywordCheck.contains("حصتي")
         val hasRemainderKeyword = normalizedText.contains("الباقي على") || normalizedText.contains("والباقي على") ||
             normalizedText.contains("الباقي ل") || normalizedText.contains("والباقي ل")
-        val hasPartyKeyword = Regex("""(?:^|\s)(?:و)?(?:[0-9]+|[^\s,]+)\s+ل[^\s,]+""").containsMatchIn(normalizedText)
+        val hasPartyKeyword = Regex("""(?:^|\s)(?:و)?(?:[0-9]+|[^\s,]+)\s+ل(?!يرة|يرات|يرتين)[^\s,]+""").containsMatchIn(normalizedText)
 
         if (!hasMyShareKeyword && !hasRemainderKeyword && !hasPartyKeyword) {
             return null
@@ -133,8 +140,8 @@ class LocalDialectExpenseParser {
 
         // 1. My Share: "ثلاثين إلي", "30 إلي", "نصيبي ثلاثين", "نصيبي 30", "حصتي 30", "30 لي"
         val mySharePatterns = listOf(
-            Regex("""(?:نصيبي|حصتي)\s+([0-9]+(?:\.[0-9]+)?|[^\s,]+)"""),
-            Regex("""([0-9]+(?:\.[0-9]+)?|[^\s,]+)\s+(?:إلي|لي|نصيبي|حصتي)""")
+            Regex("""(?:نصيبي|حصتي)\s+([0-9]+(?:\.[0-9]+)?|[^\s,]+)(?=\s|$|[،,])"""),
+            Regex("""([0-9]+(?:\.[0-9]+)?|[^\s,]+)\s+(?:إلي|لي|نصيبي|حصتي)(?=\s|$|[،,])""")
         )
         for (p in mySharePatterns) {
             val m = p.find(normalizedText)
@@ -154,7 +161,9 @@ class LocalDialectExpenseParser {
             val amtToken = match.groupValues[1].trim()
             val rawParty = match.groupValues[2].trim()
 
-            if (rawParty != "ي" && rawParty != "نا" && rawParty != "ي_" && rawParty != "كم") {
+            if (rawParty != "ي" && rawParty != "نا" && rawParty != "ي_" && rawParty != "كم" &&
+                rawParty != "يرة" && rawParty != "يرات" && rawParty != "يرتين"
+            ) {
                 val parsedAmt = parseAmountToken(amtToken)
                 if (parsedAmt != null && parsedAmt > 0.0) {
                     val partyName = when {
@@ -245,6 +254,14 @@ class LocalDialectExpenseParser {
     }
 
     private fun splitMultiItemSegments(normalizedText: String): List<String> {
+        // 1. First split by explicit punctuation delimiters (Arabic comma، standard comma, semicolon, newline)
+        val commaParts = normalizedText.split(Regex("""[،,;\n]+"""))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        if (commaParts.size >= 2 && commaParts.all { extractAmount(it) > 0.0 }) {
+            return commaParts
+        }
+
         val tokens = normalizedText.split(Regex("\\s+")).filter { it.isNotBlank() }
         if (tokens.size < 4) return emptyList()
 
@@ -258,13 +275,18 @@ class LocalDialectExpenseParser {
 
             if (isAndWord) {
                 val nextToken = tokens[i + 1]
-                val isCompoundNumber = isNumberToken(prevToken) && isNumberToken(nextToken)
+                val isCompoundNumber = isNumberToken(prevToken) && isNumberToken(nextToken) &&
+                    ArabicNumberNormalizer.isValidCompoundJoin(prevToken, nextToken)
                 if (!isCompoundNumber) {
-                    splitIndices.add(i)
+                    val remaining = tokens.subList(i + 1, tokens.size).joinToString(" ")
+                    if (extractAmount(remaining) > 0.0) {
+                        splitIndices.add(i)
+                    }
                 }
             } else if (isAndPrefix) {
                 val afterW = token.substring(1)
-                val isCompoundNumber = isNumberToken(prevToken) && isNumberToken(afterW)
+                val isCompoundNumber = isNumberToken(prevToken) && isNumberToken(afterW) &&
+                    ArabicNumberNormalizer.isValidCompoundJoin(prevToken, afterW)
                 if (!isCompoundNumber) {
                     val remaining = tokens.subList(i, tokens.size).joinToString(" ").replaceFirst(Regex("^و"), "")
                     if (extractAmount(remaining) > 0.0) {
@@ -280,12 +302,14 @@ class LocalDialectExpenseParser {
         var start = 0
         for (splitIdx in splitIndices) {
             val seg = tokens.subList(start, splitIdx).joinToString(" ").trim()
+                .replaceFirst(Regex("^و(?=[0-9\\u0621-\\u064A])"), "").trim()
             if (seg.isNotBlank() && extractAmount(seg) > 0.0) {
                 segments.add(seg)
                 start = if (tokens[splitIdx] == "و") splitIdx + 1 else splitIdx
             }
         }
-        val lastSeg = tokens.subList(start, tokens.size).joinToString(" ").replaceFirst(Regex("^و"), "").trim()
+        val lastSeg = tokens.subList(start, tokens.size).joinToString(" ")
+            .replaceFirst(Regex("^و"), "").trim()
         if (lastSeg.isNotBlank() && extractAmount(lastSeg) > 0.0) {
             segments.add(lastSeg)
         }
@@ -314,11 +338,12 @@ class LocalDialectExpenseParser {
 
         val items = mutableListOf<ExpenseItem>()
         for (seg in rawSegments) {
-            val trimmedSeg = seg.trim()
+            val trimmedSeg = seg.trim().replaceFirst(Regex("^و(?=\\S)"), "").trim()
             val segAmt = extractAmount(trimmedSeg)
             if (segAmt <= 0.0) {
                 return null
             }
+            val segCurrency = detectCurrency(trimmedSeg, currency)
             val segCategory = detectCategory(trimmedSeg)
             val segTitle = extractTitle(trimmedSeg, segCategory)
             val segSeq = nextSequence()
@@ -327,7 +352,7 @@ class LocalDialectExpenseParser {
                     id = "exp_${ts}_$segSeq",
                     title = segTitle,
                     amount = segAmt,
-                    currency = currency,
+                    currency = segCurrency,
                     category = segCategory,
                     timestamp = ts,
                     payer = Payer("self", "أنا", true),
@@ -355,11 +380,11 @@ class LocalDialectExpenseParser {
 
     private fun detectCurrency(text: String, defaultCurrency: String): String {
         return when {
-            text.contains("شيكل") || text.contains("شواكل") || text.contains("ILS") -> "₪"
-            text.contains("ريال") || text.contains("ريالات") || text.contains("SAR") -> "ر.س"
-            text.contains("جنيه") || text.contains("جنيهات") || text.contains("EGP") -> "ج.م"
-            text.contains("دولار") || text.contains("USD") -> "$"
-            text.contains("دينار") || text.contains("JOD") -> "د.أ"
+            text.contains("شيكل") || text.contains("شواكل") || text.contains("شيكلين") || text.contains("ILS") -> "₪"
+            text.contains("ريال") || text.contains("ريالات") || text.contains("ريالين") || text.contains("SAR") -> "ر.س"
+            text.contains("جنيه") || text.contains("جنيهات") || text.contains("جنيهين") || text.contains("جنهين") || text.contains("EGP") -> "ج.م"
+            text.contains("دولار") || text.contains("دولارين") || text.contains("USD") -> "$"
+            text.contains("دينار") || text.contains("دينارين") || text.contains("JOD") -> "د.أ"
             else -> defaultCurrency
         }
     }
@@ -372,7 +397,7 @@ class LocalDialectExpenseParser {
             it.groupValues[1].toDoubleOrNull()?.let { amt -> return amt }
         }
 
-        val currencyDigitRegex = Regex("""([0-9]+(?:\.[0-9]+)?)\s*(?:شيكل|شواكل|ريال|ريالات|جنيه|جنيهات|دولار|دينار|ILS|SAR|EGP|USD)""")
+        val currencyDigitRegex = Regex("""([0-9]+(?:\.[0-9]+)?)\s*(?:شيكل|شواكل|ريال|ريالات|جنيه|جنيهات|دولار|دينار|ليرة|ليرات|ILS|SAR|EGP|USD|JOD)""")
         currencyDigitRegex.find(text)?.let {
             it.groupValues[1].toDoubleOrNull()?.let { amt -> return amt }
         }
@@ -400,8 +425,13 @@ class LocalDialectExpenseParser {
 
             val isFollowedByQuantity = (i + 1 < words.size && quantityUnits.contains(words[i + 1].trim()))
 
+            // Check dual currency forms e.g. "شيكلين", "بشيكلين", "بريالين"
+            ArabicNumberNormalizer.parseDualCurrencyAmount(w)?.let { dualAmt ->
+                if (!isFollowedByQuantity) return dualAmt
+            }
+
             // Check if this token starts an Arabic number word sequence
-            if (numberWordTokens.contains(cleanW) && !isFollowedByQuantity && cleanW != "نص" && cleanW != "ربع") {
+            if (numberWordTokens.contains(cleanW) && !isFollowedByQuantity && cleanW != "نص" && cleanW != "نصف" && cleanW != "ربع") {
                 val candidateTokens = mutableListOf<String>()
                 candidateTokens.add(w)
                 var j = i + 1
@@ -421,6 +451,12 @@ class LocalDialectExpenseParser {
                     return parsed
                 }
                 i = j
+            } else if ((cleanW == "نص" || cleanW == "نصف" || cleanW == "ربع") && !isFollowedByQuantity) {
+                val nextW = if (i + 1 < words.size) words[i + 1].trim() else ""
+                if (currencyTokens.contains(nextW)) {
+                    return if (cleanW == "ربع") 0.25 else 0.5
+                }
+                i++
             } else {
                 i++
             }
@@ -431,41 +467,68 @@ class LocalDialectExpenseParser {
 
     private fun detectCategory(text: String): ExpenseCategory {
         val lower = text.lowercase()
-        val wordTokens = lower.split(Regex("[\\s,.:;!؟]+")).map { it.trim() }.toSet()
+        val wordTokens = lower.split(Regex("[\\s,.:;!؟،]+")).map { it.trim() }.toSet()
 
         return when {
             // Transport
             lower.contains("بنزين") || lower.contains("سولار") || lower.contains("ديزل") ||
             lower.contains("وقود") || lower.contains("تكسي") || lower.contains("تاكسي") ||
-            lower.contains("أوبر") || lower.contains("كريم") || lower.contains("مواصلات") ||
-            lower.contains("باص") || lower.contains("كارت باص") || lower.contains("كوشوك") ||
-            lower.contains("إطارات") || lower.contains("تصليح") -> ExpenseCategory.TRANSPORT
+            lower.contains("أوبر") || lower.contains("اوبر") || lower.contains("كريم") ||
+            lower.contains("إندرايف") || lower.contains("اندرايف") || lower.contains("ديدي") ||
+            lower.contains("مواصلات") || lower.contains("باص") || lower.contains("ميكروباص") ||
+            lower.contains("سرفيس") || lower.contains("مترو") || lower.contains("قطار") ||
+            lower.contains("توكتوك") || lower.contains("كارت باص") || lower.contains("كوشوك") ||
+            lower.contains("إطارات") || lower.contains("بنشر") || lower.contains("غسيل") ||
+            lower.contains("تغيير زيت") || lower.contains("ميكانيكي") || lower.contains("تصليح") ||
+            lower.contains("موقف") || lower.contains("باركنج") || lower.contains("ركنة") -> ExpenseCategory.TRANSPORT
 
             // Dining
-            lower.contains("قهوة") || lower.contains("شاي") || lower.contains("كابتشينو") ||
-            lower.contains("عشاء") || lower.contains("غداء") || lower.contains("فطور") ||
-            lower.contains("مطعم") || lower.contains("كافيه") || lower.contains("شاورما") ||
-            lower.contains("برجر") || lower.contains("بيتزا") || lower.contains("حلا") ||
-            lower.contains("سناك") || wordTokens.contains("بن") -> ExpenseCategory.DINING
+            lower.contains("قهوة") || lower.contains("قهوه") || lower.contains("شاي") ||
+            lower.contains("كابتشينو") || lower.contains("لاتيه") || lower.contains("اسبرسو") ||
+            lower.contains("إسبرسو") || lower.contains("نسكافيه") || lower.contains("عصير") ||
+            lower.contains("عشاء") || lower.contains("عشا") || lower.contains("غداء") ||
+            lower.contains("غدا") || lower.contains("فطور") || lower.contains("إفطار") || lower.contains("افطار") ||
+            lower.contains("مطعم") || lower.contains("كافيه") || lower.contains("كوفي") ||
+            lower.contains("ستاربكس") || lower.contains("دانكن") || lower.contains("ماكدونالدز") ||
+            lower.contains("شاورما") || lower.contains("فلافل") || lower.contains("حمص") ||
+            lower.contains("فول") || lower.contains("مناقيش") || lower.contains("برجر") ||
+            lower.contains("بيتزا") || lower.contains("حلا") || lower.contains("حلويات") ||
+            lower.contains("كنافة") || lower.contains("بوظة") || lower.contains("سناك") ||
+            lower.contains("دليفري") || lower.contains("طلبات") || lower.contains("جاهز") ||
+            lower.contains("مرسول") || lower.contains("هنقرستيشن") || lower.contains("توصيل أكل") ||
+            wordTokens.contains("بن") || wordTokens.contains("كولا") -> ExpenseCategory.DINING
 
             // Groceries
-            lower.contains("سوبرماركت") || lower.contains("ماركت") || lower.contains("كارفور") ||
-            lower.contains("برافو") || lower.contains("بقالة") || lower.contains("تموينات") ||
-            lower.contains("خضار") || lower.contains("فواكه") || lower.contains("حليب") ||
-            lower.contains("لبن") || lower.contains("بيض") || lower.contains("جبنة") ||
-            lower.contains("خبز") || lower.contains("تفاح") || lower.contains("لحمة") ||
-            lower.contains("دجاج") || wordTokens.contains("رز") -> ExpenseCategory.GROCERIES
+            lower.contains("سوبرماركت") || lower.contains("سوبر ماركت") || lower.contains("ماركت") ||
+            lower.contains("هايبر") || lower.contains("كارفور") || lower.contains("برافو") ||
+            lower.contains("بنده") || lower.contains("العثيم") || lower.contains("التميمي") ||
+            lower.contains("بقالة") || lower.contains("بقاله") || lower.contains("تموينات") ||
+            lower.contains("دكان") || lower.contains("خضار") || lower.contains("فواكه") ||
+            lower.contains("بندورة") || lower.contains("طماطم") || lower.contains("بطاطا") ||
+            lower.contains("حليب") || lower.contains("لبن") || lower.contains("زبادي") ||
+            lower.contains("بيض") || lower.contains("جبنة") || lower.contains("جبنه") ||
+            lower.contains("خبز") || lower.contains("عيش") || lower.contains("تفاح") ||
+            lower.contains("لحمة") || lower.contains("لحمه") || lower.contains("دجاج") ||
+            lower.contains("فراخ") || lower.contains("سمك") || lower.contains("مكرونة") ||
+            lower.contains("منظفات") || lower.contains("بامبرز") || wordTokens.contains("رز") -> ExpenseCategory.GROCERIES
 
             // Bills
-            lower.contains("فاتورة") || lower.contains("كهرباء") || lower.contains("مياه") ||
-            lower.contains("إنترنت") || lower.contains("رصيد") ||
+            lower.contains("فاتورة") || lower.contains("فاتوره") || lower.contains("كهرباء") || lower.contains("كهربا") ||
+            lower.contains("مياه") || lower.contains("إنترنت") || lower.contains("انترنت") ||
+            lower.contains("واي فاي") || lower.contains("فايبر") || lower.contains("راوتر") ||
+            lower.contains("رصيد") || lower.contains("شحن") || lower.contains("باقة") ||
             lower.contains("إيجار") || lower.contains("ايجار") || lower.contains("قسط") ||
-            lower.contains("اشتراك") || wordTokens.contains("نت") -> ExpenseCategory.BILLS
+            lower.contains("أقساط") || lower.contains("اشتراك") || lower.contains("نتفلكس") ||
+            lower.contains("سبوتيفاي") || lower.contains("بلدية") || wordTokens.contains("نت") -> ExpenseCategory.BILLS
 
             // Health
             lower.contains("صيدلية") || lower.contains("صيدليه") || lower.contains("دواء") ||
-            lower.contains("علاج") || lower.contains("دكتور") || lower.contains("طبيب") ||
-            lower.contains("مستشفى") || lower.contains("عيادة") || lower.contains("النهدي") -> ExpenseCategory.HEALTH
+            lower.contains("علاج") || lower.contains("مسكن") || lower.contains("مضاد") ||
+            lower.contains("فيتامينات") || lower.contains("دكتور") || lower.contains("طبيب") ||
+            lower.contains("مستشفى") || lower.contains("مستوصف") || lower.contains("عيادة") ||
+            lower.contains("عياده") || lower.contains("تحليل") || lower.contains("أسنان") ||
+            lower.contains("نظارة") || lower.contains("كشفية") || lower.contains("النهدي") ||
+            wordTokens.contains("دوا") -> ExpenseCategory.HEALTH
 
             else -> ExpenseCategory.GENERAL
         }
@@ -631,8 +694,9 @@ class LocalDialectExpenseParser {
         // 1. Check known specific multi-word merchant / item patterns first (helper list)
         val knownPhrases = listOf(
             "تصليح كوشوك السيارة", "سوبرماركت برافو", "صيدلية النهدي", "كارفور", "برافو",
+            "غسيل السيارة", "تغيير زيت", "شحن رصيد", "توصيل طلبات", "كارت باص",
             "نص كيلو جبنة", "ربع كيلو بن", "قهوة وحلا", "إيجار البيت", "ايجار البيت",
-            "فاتورة الكهرباء", "دواء من الصيدلية", "السوبرماركت", "سوبرماركت"
+            "فاتورة الكهرباء", "فاتورة المياه", "فاتورة الإنترنت", "دواء من الصيدلية", "السوبرماركت", "سوبرماركت"
         )
         for (phrase in knownPhrases) {
             if (trimmed.contains(phrase)) {
@@ -646,16 +710,17 @@ class LocalDialectExpenseParser {
         // Remove numbers and digits
         text = text.replace(Regex("""[0-9]+(?:\.[0-9]+)?"""), " ")
 
-        val currencies = setOf("شيكل", "شواكل", "ريال", "ريالات", "جنيه", "جنيهات", "دولار", "دينار", "ILS", "SAR", "EGP", "USD", "₪", "$")
+        val currencies = currencyTokens + setOf("₪", "$")
         val paymentTriggers = setOf(
             "دفعت", "دفع", "دفعه", "دفعها", "اشتريت", "شريت", "سددت", "سدد", "سددها",
+            "حاسبت", "جبت", "اخذت", "أخذت", "طلبت", "عبيت", "فولت", "شربت", "اكلت", "أكلت", "ركبت", "صرفت",
             "حساب", "بيني", "وبين", "قسمة", "علينا", "النص", "بالنص", "لكل", "واحد",
             "نصيبي", "حصتي", "والباقي", "الباقي"
         )
         val prepositions = setOf("في", "من", "عن", "على", "إلى", "الي", "لي", "إلي", "مع", "ب", "و", "ل")
 
         // Token-based filtering: perfectly handles Arabic Unicode characters
-        val tokens = text.replace(Regex("""[«»"'\.,:;!؟]"""), " ")
+        val tokens = text.replace(Regex("""[«»"'\.,:;!؟،]"""), " ")
             .split(Regex("""\s+"""))
             .filter { it.isNotBlank() }
 
@@ -666,7 +731,8 @@ class LocalDialectExpenseParser {
             !paymentTriggers.contains(token) &&
             !prepositions.contains(token) &&
             !numberWordTokens.contains(token) &&
-            !numberWordTokens.contains(clean)
+            !numberWordTokens.contains(clean) &&
+            ArabicNumberNormalizer.parseDualCurrencyAmount(token) == null
         }
 
         val cleanCandidate = cleanTokens.joinToString(" ").trim()

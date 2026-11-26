@@ -13,6 +13,7 @@ import kotlinx.datetime.toLocalDateTime
 import org.mohtech.app.data.model.ExpenseBatch
 import org.mohtech.app.data.model.ExpenseCategory
 import org.mohtech.app.data.model.ExpenseItem
+import org.mohtech.app.data.model.ExpenseRecordType
 import org.mohtech.app.data.storage.AppPreferences
 import org.mohtech.app.data.storage.PlatformExpenseStorage
 
@@ -48,6 +49,7 @@ class LocalExpenseRepository(
 
     override suspend fun saveBatch(batch: ExpenseBatch) {
         val uniqueItems = batch.items.distinctBy { it.id }
+        if (uniqueItems.isEmpty()) return
         storage.saveAll(uniqueItems)
         val current = _expensesFlow.value.filterNot { existing ->
             uniqueItems.any { it.id == existing.id }
@@ -65,7 +67,7 @@ class LocalExpenseRepository(
 
     override suspend fun deleteExpense(id: String) {
         val currentItem = _expensesFlow.value.find { it.id == id }
-        if (currentItem != null && currentItem.split?.allocations?.isNotEmpty() == true) {
+        if (currentItem != null && (currentItem.recordType == ExpenseRecordType.RECEIVABLE || currentItem.split?.allocations?.isNotEmpty() == true)) {
             val softDeleted = currentItem.copy(deletedAt = Clock.System.now().toEpochMilliseconds())
             storage.saveExpense(softDeleted)
             val current = _expensesFlow.value.filter { it.id != id }.toMutableList()
@@ -92,6 +94,7 @@ class LocalExpenseRepository(
 
         return _expensesFlow.value.filter { item ->
             item.deletedAt == null &&
+            item.recordType != ExpenseRecordType.RECEIVABLE &&
             item.timestamp >= startOfToday &&
             (activeCurrency.isBlank() || item.currency == activeCurrency)
         }.sumOf { it.effectiveAmount }
@@ -107,6 +110,7 @@ class LocalExpenseRepository(
 
         return _expensesFlow.value.filter { item ->
             item.deletedAt == null &&
+            item.recordType != ExpenseRecordType.RECEIVABLE &&
             item.timestamp >= startOfWeek &&
             (activeCurrency.isBlank() || item.currency == activeCurrency)
         }.sumOf { it.effectiveAmount }

@@ -49,7 +49,9 @@ import org.mohtech.app.core.ui.RaqeemIcons
 @Composable
 fun PoliteFallbackSheet(
     currency: String,
+    errorMessage: String? = null,
     onParseText: (String) -> Unit,
+    onOpenManualDraft: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -127,6 +129,26 @@ fun PoliteFallbackSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Error or status hint banner
+            if (!errorMessage.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(RaqeemColors.CoralRose.copy(alpha = 0.12f))
+                        .border(1.dp, RaqeemColors.CoralRose.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = errorMessage,
+                        color = RaqeemColors.CoralRose,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             // Text Input Field
             OutlinedTextField(
                 value = textInput,
@@ -198,7 +220,32 @@ fun PoliteFallbackSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            if (onOpenManualDraft != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            onOpenManualDraft()
+                            onDismiss()
+                        }
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RaqeemIcons.Receipt(size = 14.dp, tint = RaqeemColors.ElectricCyan)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "أو افتح بطاقة المراجعة لإدخال يدوي مفصل",
+                        color = RaqeemColors.ElectricCyan,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Action Button
             Button(

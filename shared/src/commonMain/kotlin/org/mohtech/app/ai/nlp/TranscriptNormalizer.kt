@@ -35,9 +35,9 @@ object TranscriptNormalizer {
         "سبع", "سبعة", "سبعه", "ثمان", "تمان", "ثمانية", "تمانية", "ثمانيه", "تمانيه",
         "تسع", "تسعة", "تسعه", "عشر", "عشرة", "عشره", "عشرين", "ثلاثين", "تلاتين",
         "أربعين", "اربعين", "خمسين", "ستين", "سبعين", "ثمانين", "تمانين", "تسعين",
-        "مية", "ميه", "مائة", "مئة", "ميتين", "مائتين", "مئتين", "ثلاثمية", "تلاتمية",
+        "مية", "ميه", "ميت", "مائة", "مئة", "ميتين", "مائتين", "مئتين", "ثلاثمية", "تلاتمية",
         "أربعمية", "اربعمية", "خمسمية", "خمسمائة", "خمسمئة", "ستمية", "سبعمية", "ثمانمية",
-        "تمانمية", "تسعمية", "ألف", "الف", "ألفين", "الفين", "آلاف", "الاف", "نص", "ربع"
+        "تمانمية", "تسعمية", "ألف", "الف", "ألفين", "الفين", "آلاف", "الاف", "تلاف", "نص", "ربع"
     )
 
     private val protectedPrefixPhrases = listOf(
@@ -58,12 +58,32 @@ object TranscriptNormalizer {
     )
 
     private val targetVocabulary = setOf(
-        "شيكل", "شواكل", "ريال", "ريالات", "جنيه", "جنيهات", "دولار", "دينار",
+        "شيكل", "شواكل", "شيكلين", "ريال", "ريالات", "ريالين", "جنيه", "جنيهات", "جنيهين", "دولار", "دينار", "دينارين",
         "واحد", "اثنين", "ثلاثة", "اربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة", "عشرة",
         "عشرين", "ثلاثين", "اربعين", "خمسين", "ستين", "سبعين", "ثمانين", "تسعين",
         "مية", "ميتين", "الف", "الفين", "الاف",
         "دفعت", "حاسبت", "سددت", "اشتريت",
-        "بنزين", "سوبرماركت", "صيدلية", "فاتورة", "مطعم", "قهوة", "خضار", "حليب", "كهرباء"
+        "بنزين", "سوبرماركت", "صيدلية", "فاتورة", "مطعم", "قهوة", "خضار", "حليب", "كهرباء",
+        "مواصلات", "شاورما", "فلافل", "كابتشينو", "إيجار", "إنترنت", "توصيل", "دليفري",
+        "كارفور", "بقالة", "تموينات", "مستشفى", "علاج", "كوشوك", "تاكسي", "كافيه", "ميكانيكي"
+    )
+
+    private val explicitWhisperTypos = mapOf(
+        "شايكل" to "شيكل",
+        "شواكيل" to "شواكل",
+        "شكلين" to "شيكلين",
+        "بنزن" to "بنزين",
+        "سبرماركت" to "سوبرماركت",
+        "سوبارماركت" to "سوبرماركت",
+        "كبوتشينو" to "كابتشينو",
+        "صيضلية" to "صيدلية",
+        "صيضليه" to "صيدلية",
+        "كهربه" to "كهرباء",
+        "إجار" to "إيجار",
+        "جنية" to "جنيه",
+        "جنه" to "جنيه",
+        "توكسي" to "تاكسي",
+        "شاورمه" to "شاورما"
     )
 
     /**
@@ -95,7 +115,28 @@ object TranscriptNormalizer {
             }
 
             val current = outputTokens[i]
+
+            // Direct colloquial/Whisper typo check (check full word first, then prefix-stripped)
+            val directFullTypo = explicitWhisperTypos[current]
+            if (directFullTypo != null) {
+                outputTokens[i] = directFullTypo
+                replacements.add(ReplacementRecord(current, directFullTypo, i, "Colloquial typo: '$current' -> '$directFullTypo'"))
+                continue
+            }
+
             val stripped = current.removePrefix("ب").removePrefix("و")
+            val directStrippedTypo = explicitWhisperTypos[stripped]
+            if (directStrippedTypo != null) {
+                val pref = when {
+                    current.startsWith("ب") && current != stripped -> "ب"
+                    current.startsWith("و") && current != stripped -> "و"
+                    else -> ""
+                }
+                val replaced = pref + directStrippedTypo
+                outputTokens[i] = replaced
+                replacements.add(ReplacementRecord(current, replaced, i, "Colloquial typo: '$current' -> '$replaced'"))
+                continue
+            }
 
             // Context Rule 1: "شكل" -> "شيكل" only if adjacent to a digit or number word
             if (stripped == "شكل") {

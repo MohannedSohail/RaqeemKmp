@@ -97,7 +97,8 @@ data class ExpenseUiState(
     val exportMimeType: String? = null,
     val exportErrorMessage: String? = null,
     val showReceivablesScreen: Boolean = false,
-    val receivablesTotalRemaining: Double = 0.0
+    val receivablesTotalRemaining: Double = 0.0,
+    val receivableExpenses: List<ExpenseItem> = emptyList()
 ) {
     val dailyTotal: Double get() = todayTotal
     val isProcessing: Boolean get() = processingStage != ProcessingStage.IDLE
@@ -116,8 +117,11 @@ sealed interface ExpenseIntent {
     data object FinishProcessingReady : ExpenseIntent
     data class UpdateAmplitude(val amplitude: Float) : ExpenseIntent
     data class ParseManualSpeechText(val rawText: String) : ExpenseIntent
+    data class UpdatePendingRawText(val rawText: String) : ExpenseIntent
+    data class ReparsePendingText(val rawText: String) : ExpenseIntent
     data class ParseBankSms(val smsBody: String) : ExpenseIntent
     data class ConfirmBatch(val batch: ExpenseBatch) : ExpenseIntent
+    data class ConfirmSplitBatch(val batch: ExpenseBatch) : ExpenseIntent
     data class DeleteExpense(val expenseId: String) : ExpenseIntent
     data class RestoreExpense(val item: ExpenseItem) : ExpenseIntent
     data class EditExpense(val item: ExpenseItem) : ExpenseIntent
@@ -142,6 +146,7 @@ sealed interface ExpenseIntent {
     data object ExportPdfReport : ExpenseIntent
     data object DismissExportResult : ExpenseIntent
     data object OpenManualSheet : ExpenseIntent
+    data class OpenDraftReviewSheet(val initialText: String = "") : ExpenseIntent
     data object DismissReviewSheet : ExpenseIntent
     data object DismissFallbackSheet : ExpenseIntent
     data object DismissPermissionRationale : ExpenseIntent
